@@ -1,9 +1,11 @@
 import type { StatKey, Stats, WeaponType } from "./types";
 
 // Tunable numbers. The design doc leaves these open, so they live in one place.
-export const STARTING_POINTS = 30;
+// Approved 2026-11-09. Classes (5 fixed in the class main stat + 5 free) come later;
+// until then every character is effectively a "Free Class" with all 10 points free.
+export const STARTING_POINTS = 10;
 export const POINTS_PER_LEVEL = 5;
-export const LEVEL_CAP = 30;
+export const LEVEL_CAP = 100;
 export const BASE_HP = 100;
 export const HP_PER_POINT = 10;
 export const BASE_MP = 20;

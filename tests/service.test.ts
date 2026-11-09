@@ -5,7 +5,7 @@ import * as game from "../src/lib/game/service";
 describe("full play-through on the memory store", () => {
   it("creates a character, fights, and unlocks a weapon skill by habit", async () => {
     const store = new MemoryStore();
-    const p = await game.createCharacter(store, { name: "Rin", appearance: "red cloak", weapon: "sword", stats: { STR: 25, HP: 5 } });
+    const p = await game.createCharacter(store, { name: "Rin", appearance: "red cloak", weapon: "sword", stats: { STR: 8, HP: 2 } });
     expect(p.freePoints).toBe(0);
 
     const unlocked: string[] = [];
@@ -41,7 +41,8 @@ describe("full play-through on the memory store", () => {
 
   it("stat-locking skills are offered first, and accepting locks the stats", async () => {
     const store = new MemoryStore();
-    const p = await game.createCharacter(store, { name: "Wall", appearance: "", weapon: "large_shield", stats: { VIT: 30 } });
+    const p = await game.createCharacter(store, { name: "Wall", appearance: "", weapon: "large_shield", stats: { VIT: 10 } });
+    await store.savePlayer({ ...(await store.getPlayer(p.id))!, stats: { HP: 0, MP: 0, STR: 0, VIT: 30, AGI: 0, DEX: 0, INT: 0 } });
     await store.applyCounters(p.id, { damage_blocked: { op: "inc", value: 6000 } });
     const u = await game.checkUnlocks(store, p.id, { battle: { attacks_made: 0 } });
     const iron = u.find((x) => x.id === "iron_endurance")!;
@@ -59,7 +60,7 @@ describe("full play-through on the memory store", () => {
   it("the unique item goes to the first player who clears the dungeon on their first attempt", async () => {
     const store = new MemoryStore();
     // A ridiculous glass cannon so the run is deterministic enough.
-    const p = await game.createCharacter(store, { name: "Hero", appearance: "", weapon: "hammer", stats: { STR: 30 } });
+    const p = await game.createCharacter(store, { name: "Hero", appearance: "", weapon: "hammer", stats: { STR: 10 } });
     await store.savePlayer({ ...(await store.getPlayer(p.id))!, stats: { HP: 100, MP: 0, STR: 400, VIT: 400, AGI: 0, DEX: 200, INT: 400 } });
     await game.rest(store, p.id);
     await game.beginBattle(store, p.id, "hollow_of_the_mire");

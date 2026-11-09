@@ -12,8 +12,12 @@ const seq = (...vals: number[]): Rng => {
 };
 
 function setup(stats: Partial<Stats>, monster = "green_slime", skills: PlayerSkill[] = [], weapon: "sword" | "unarmed" | "large_shield" = "sword") {
-  const p = newCharacter({ name: "Tester", appearance: "", weapon, stats }, "p1");
+  // Build stats directly so tests can use values beyond the starting points.
+  const p = newCharacter({ name: "Tester", appearance: "", weapon, stats: {} }, "p1");
+  p.stats = { ...p.stats, ...stats };
   const d = derive(p, skills, defs, null);
+  p.currentHp = d.maxHp;
+  p.currentMp = d.maxMp;
   const b = startBattle({
     id: "b1",
     playerId: "p1",
@@ -86,7 +90,8 @@ describe("turn resolution", () => {
   });
 
   it("Iron Endurance doubles VIT", () => {
-    const p = newCharacter({ name: "Tank", appearance: "", weapon: "large_shield", stats: { VIT: 20 } }, "p");
+    const p = newCharacter({ name: "Tank", appearance: "", weapon: "large_shield", stats: { VIT: 10 } }, "p");
+    p.stats.VIT = 20;
     const owned: PlayerSkill[] = [{ skillId: "iron_endurance", status: "owned", equipped: true, stage: 1, evolvedInto: null, unlockedAt: "" }];
     expect(derive(p, owned, defs, null).stats.VIT).toBe(40);
     expect(derive(p, [{ ...owned[0], equipped: false }], defs, null).stats.VIT).toBe(20);
@@ -107,5 +112,21 @@ describe("turn resolution", () => {
     );
     expect(consumed).toEqual(["slime_jelly"]);
     expect(state.deltas.inedible_eaten.value).toBe(1);
+  });
+});
+
+describe("progression numbers", () => {
+  it("characters start with 10 points and can level to 100", async () => {
+    const { STARTING_POINTS, LEVEL_CAP, POINTS_PER_LEVEL } = await import("../src/lib/game/constants");
+    const { grantExp } = await import("../src/lib/game/character");
+    expect(STARTING_POINTS).toBe(10);
+    expect(POINTS_PER_LEVEL).toBe(5);
+    expect(() => newCharacter({ name: "Greedy", appearance: "", weapon: "sword", stats: { STR: 11 } }, "x")).toThrow(/10 points/);
+    const p = newCharacter({ name: "Ok", appearance: "", weapon: "sword", stats: { STR: 10 } }, "y");
+    expect(p.freePoints).toBe(0);
+    const maxed = grantExp(p, 1e12).player;
+    expect(maxed.level).toBe(LEVEL_CAP);
+    expect(maxed.level).toBe(100);
+    expect(maxed.freePoints).toBe(99 * POINTS_PER_LEVEL);
   });
 });
