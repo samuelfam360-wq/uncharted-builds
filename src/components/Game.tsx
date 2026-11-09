@@ -128,7 +128,10 @@ export default function Game() {
         <div>
           <h1 className="title text-2xl text-gold">{player.name}</h1>
           <p className="text-xs text-muted">
-            {player.appearance} · Level {player.level} · {player.gold} gold
+            {state.className} · Level {player.level} · {player.gold} gold
+          </p>
+          <p className="text-xs text-muted/70">
+            {state.look} · {state.weapons.find((w) => w.type === player.weapon)?.name}
           </p>
         </div>
         <div className="space-y-1.5">

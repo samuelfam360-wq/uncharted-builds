@@ -1,6 +1,17 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { BattleState } from "../game/combat";
-import type { Counters, Player, PlayerSkill, SkillDefinition, StatKey, UniqueItem, WeaponType } from "../game/types";
+import { cleanAppearance } from "../game/data/classes";
+import { CLASS_IDS, type ClassId, type Counters, type Player, type PlayerSkill, type SkillDefinition, type StatKey, type UniqueItem, type WeaponType } from "../game/types";
+
+/** Appearance is stored as JSON text. Phase 1 rows hold a plain label, which falls back to defaults. */
+function parseAppearance(raw: unknown) {
+  if (typeof raw !== "string") return cleanAppearance(null);
+  try {
+    return cleanAppearance(JSON.parse(raw));
+  } catch {
+    return cleanAppearance(null);
+  }
+}
 import type { GameStore, GrantOptions } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -42,7 +53,8 @@ export class SupabaseStore implements GameStore {
       await this.db.from("players").insert({
         id: p.id,
         name: p.name,
-        appearance: p.appearance,
+        class_id: p.classId,
+        appearance: JSON.stringify(p.appearance),
         level: p.level,
         exp: p.exp,
         free_points: p.freePoints,
@@ -79,7 +91,8 @@ export class SupabaseStore implements GameStore {
     return {
       id: r.id,
       name: r.name,
-      appearance: r.appearance,
+      classId: (CLASS_IDS as readonly string[]).includes(r.class_id) ? (r.class_id as ClassId) : "free",
+      appearance: parseAppearance(r.appearance),
       level: r.level,
       exp: r.exp,
       freePoints: r.free_points,

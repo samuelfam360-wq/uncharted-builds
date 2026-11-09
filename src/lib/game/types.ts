@@ -4,16 +4,49 @@ export const STAT_KEYS = ["HP", "MP", "STR", "VIT", "AGI", "DEX", "INT"] as cons
 export type StatKey = (typeof STAT_KEYS)[number];
 export type Stats = Record<StatKey, number>;
 
+// Internal weapon keys. "large_shield" and "daggers" keep their Phase 1 keys so
+// existing saves and kill counters (kills_<weapon>) keep working.
 export const WEAPON_TYPES = [
   "sword",
-  "large_shield",
-  "daggers",
-  "bow",
   "staff",
+  "daggers",
+  "large_shield",
+  "bow",
+  "pistol",
+  "tamer_wand",
+  "lance",
+  "healing_bracelet",
   "hammer",
+  "strength_bracelet",
   "unarmed",
 ] as const;
 export type WeaponType = (typeof WEAPON_TYPES)[number];
+
+export const CLASS_IDS = [
+  "swordsman",
+  "mage",
+  "assassin",
+  "tanker",
+  "ranger",
+  "gunslinger",
+  "tamer",
+  "lancer",
+  "saint",
+  "blacksmith",
+  "monk",
+  "free",
+] as const;
+export type ClassId = (typeof CLASS_IDS)[number];
+
+/** Self-customised look. Saved now, shown once the game is 3D. */
+export interface Appearance {
+  gender: string;
+  skinTone: string;
+  hairStyle: string;
+  hairColor: string;
+  eyeColor: string;
+  build: string;
+}
 
 export const STATUS_TYPES = [
   "poison",
@@ -34,7 +67,8 @@ export interface StatusEffect {
 export interface Player {
   id: string;
   name: string;
-  appearance: string;
+  classId: ClassId;
+  appearance: Appearance;
   level: number;
   exp: number;
   freePoints: number;

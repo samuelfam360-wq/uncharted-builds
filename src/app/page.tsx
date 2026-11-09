@@ -14,7 +14,7 @@ export default async function Home() {
       <header className="mb-8 text-center">
         <h1 className="title text-4xl text-gold sm:text-5xl">Uncharted Builds</h1>
         <p className="mt-3 text-muted">
-          No classes. No skill trees. The world watches how you play, and rewards your habits with power nobody else has.
+          Pick a class to start, then grow any way you like. No skill trees. The world watches how you play, and rewards your habits with power nobody else has.
         </p>
       </header>
       <CreateCharacter />
