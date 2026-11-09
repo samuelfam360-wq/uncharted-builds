@@ -14,9 +14,10 @@ import {
   type CreateCharacterInput,
 } from "./character";
 import { eatOutsideBattle, resolveTurn, startBattle, summarize, type BattleAction, type BattleState, type Rng } from "./combat";
+import { CLASSES, describeAppearance } from "./data/classes";
 import { ITEMS, MONSTERS, ZONES } from "./data/world";
 import { findUnlocks, type BattleSummary } from "./rules";
-import type { CounterDeltas, Player, PlayerSkill, SkillDefinition, Stats, UniqueItem, WeaponType } from "./types";
+import { WEAPON_TYPES, type CounterDeltas, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
 export interface UnlockNotice {
@@ -121,6 +122,8 @@ export async function getState(store: GameStore, playerId: string) {
   const [inventory, battle] = await Promise.all([store.getInventory(playerId), store.getActiveBattle(playerId)]);
   return {
     player,
+    className: CLASSES[player.classId]?.name ?? "Free Class",
+    look: describeAppearance(player.appearance),
     derived: { stats: d.stats, maxHp: d.maxHp, maxMp: d.maxMp, immunities: [...d.immunities] },
     expToNext: expToNext(player.level),
     slots: slotUsage(player, skills, defs),
@@ -234,7 +237,7 @@ export async function weaponAction(store: GameStore, playerId: string, weapon: W
   if (await store.getActiveBattle(playerId)) throw new GameError("You're in a battle");
   const player = await store.getPlayer(playerId);
   if (!player) throw new GameError("Character not found", 404);
-  if (!WEAPONS[weapon]) throw new GameError("Unknown weapon");
+  if (!WEAPON_TYPES.includes(weapon)) throw new GameError("Unknown weapon");
   if (!player.ownedWeapons.includes(weapon)) {
     if (player.gold < WEAPON_PRICE) throw new GameError(`You need ${WEAPON_PRICE} gold`);
     player.gold -= WEAPON_PRICE;

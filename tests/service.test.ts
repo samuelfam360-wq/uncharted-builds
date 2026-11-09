@@ -5,7 +5,7 @@ import * as game from "../src/lib/game/service";
 describe("full play-through on the memory store", () => {
   it("creates a character, fights, and unlocks a weapon skill by habit", async () => {
     const store = new MemoryStore();
-    const p = await game.createCharacter(store, { name: "Rin", appearance: "red cloak", weapon: "sword", stats: { STR: 8, HP: 2 } });
+    const p = await game.createCharacter(store, { name: "Rin", classId: "swordsman", stats: { STR: 3, HP: 2 } });
     expect(p.freePoints).toBe(0);
 
     const unlocked: string[] = [];
@@ -30,8 +30,8 @@ describe("full play-through on the memory store", () => {
 
   it("server-first: only one player can ever own First Light", async () => {
     const store = new MemoryStore();
-    const a = await game.createCharacter(store, { name: "Aa", appearance: "", weapon: "sword", stats: {} });
-    const b = await game.createCharacter(store, { name: "Bb", appearance: "", weapon: "sword", stats: {} });
+    const a = await game.createCharacter(store, { name: "Aa", classId: "swordsman", stats: {} });
+    const b = await game.createCharacter(store, { name: "Bb", classId: "swordsman", stats: {} });
     const battle = { dungeon_cleared: true } as const;
     const ua = await game.checkUnlocks(store, a.id, { battle });
     const ub = await game.checkUnlocks(store, b.id, { battle });
@@ -41,7 +41,7 @@ describe("full play-through on the memory store", () => {
 
   it("stat-locking skills are offered first, and accepting locks the stats", async () => {
     const store = new MemoryStore();
-    const p = await game.createCharacter(store, { name: "Wall", appearance: "", weapon: "large_shield", stats: { VIT: 10 } });
+    const p = await game.createCharacter(store, { name: "Wall", classId: "tanker", stats: { VIT: 5 } });
     await store.savePlayer({ ...(await store.getPlayer(p.id))!, stats: { HP: 0, MP: 0, STR: 0, VIT: 30, AGI: 0, DEX: 0, INT: 0 } });
     await store.applyCounters(p.id, { damage_blocked: { op: "inc", value: 6000 } });
     const u = await game.checkUnlocks(store, p.id, { battle: { attacks_made: 0 } });
@@ -60,7 +60,7 @@ describe("full play-through on the memory store", () => {
   it("the unique item goes to the first player who clears the dungeon on their first attempt", async () => {
     const store = new MemoryStore();
     // A ridiculous glass cannon so the run is deterministic enough.
-    const p = await game.createCharacter(store, { name: "Hero", appearance: "", weapon: "hammer", stats: { STR: 10 } });
+    const p = await game.createCharacter(store, { name: "Hero", classId: "blacksmith", stats: { STR: 5 } });
     await store.savePlayer({ ...(await store.getPlayer(p.id))!, stats: { HP: 100, MP: 0, STR: 400, VIT: 400, AGI: 0, DEX: 200, INT: 400 } });
     await game.rest(store, p.id);
     await game.beginBattle(store, p.id, "hollow_of_the_mire");

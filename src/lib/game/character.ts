@@ -12,9 +12,10 @@ import {
   expToNext,
   passiveSlots,
 } from "./constants";
+import { CLASSES, cleanAppearance } from "./data/classes";
 import {
+  CLASS_IDS,
   STAT_KEYS,
-  WEAPON_TYPES,
   type PassiveEffect,
   type Player,
   type PlayerSkill,
@@ -23,6 +24,7 @@ import {
   type Stats,
   type StatusType,
   type UniqueItem,
+  type ClassId,
   type WeaponType,
 } from "./types";
 
@@ -34,10 +36,16 @@ export class GameError extends Error {
 
 export interface CreateCharacterInput {
   name: string;
-  appearance: string;
-  weapon: WeaponType;
-  stats: Partial<Stats>;
+  classId: ClassId;
+  appearance?: unknown; // cleaned to known options
+  stats: Partial<Stats>; // the free points only; class points are added on top
 }
+
+/** Points the player chooses at creation (class fixed points are on top). */
+export const freeStartingPoints = (classId: ClassId) => {
+  const fixed = Object.values(CLASSES[classId].fixed).reduce((n, v) => n + (v ?? 0), 0);
+  return STARTING_POINTS - fixed;
+};
 
 export function validateAllocation(stats: Partial<Stats>, available: number, locked: StatKey[] = []): Stats {
   const out = emptyStats();
@@ -57,19 +65,25 @@ export function newCharacter(input: CreateCharacterInput, id: string, now = new 
   const name = input.name?.trim();
   if (!name || name.length < 2 || name.length > 20) throw new GameError("Name must be 2 to 20 characters");
   if (!/^[\p{L}\p{N} _'-]+$/u.test(name)) throw new GameError("Name can only use letters, numbers, spaces, - _ and '");
-  if (!WEAPON_TYPES.includes(input.weapon)) throw new GameError("Pick a starting weapon");
-  const stats = validateAllocation(input.stats ?? {}, STARTING_POINTS);
-  const spent = STAT_KEYS.reduce((n, k) => n + stats[k], 0);
+  if (!CLASS_IDS.includes(input.classId)) throw new GameError("Pick a class");
+  const cls = CLASSES[input.classId];
+  const free = freeStartingPoints(cls.id);
+  const chosen = validateAllocation(input.stats ?? {}, free);
+  const spent = STAT_KEYS.reduce((n, k) => n + chosen[k], 0);
+  const stats = { ...chosen };
+  for (const [k, v] of Object.entries(cls.fixed)) stats[k as StatKey] += v ?? 0;
+  const weapon: WeaponType = cls.weapon;
   const p: Player = {
     id,
     name,
-    appearance: (input.appearance ?? "").slice(0, 40) || "wanderer",
+    classId: cls.id,
+    appearance: cleanAppearance(input.appearance),
     level: 1,
     exp: 0,
-    freePoints: STARTING_POINTS - spent,
+    freePoints: free - spent,
     gold: STARTING_GOLD,
-    weapon: input.weapon,
-    ownedWeapons: [input.weapon, ...(input.weapon === "unarmed" ? [] : (["unarmed"] as WeaponType[]))],
+    weapon,
+    ownedWeapons: weapon === "unarmed" ? ["unarmed"] : [weapon, "unarmed"],
     currentHp: 0,
     currentMp: 0,
     stats,

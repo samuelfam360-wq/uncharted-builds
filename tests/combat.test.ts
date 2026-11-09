@@ -3,7 +3,8 @@ import { damageFormula, hitChance, resolveTurn, startBattle, type BattleState, t
 import { derive, newCharacter } from "../src/lib/game/character";
 import { MONSTERS } from "../src/lib/game/data/world";
 import { STARTER_SKILLS } from "../src/lib/game/data/skills";
-import type { PlayerSkill, Stats } from "../src/lib/game/types";
+import { emptyStats } from "../src/lib/game/constants";
+import type { PlayerSkill, Stats, WeaponType } from "../src/lib/game/types";
 
 const defs = new Map(STARTER_SKILLS.map((d) => [d.id, d]));
 const seq = (...vals: number[]): Rng => {
@@ -11,10 +12,11 @@ const seq = (...vals: number[]): Rng => {
   return () => vals[i++ % vals.length];
 };
 
-function setup(stats: Partial<Stats>, monster = "green_slime", skills: PlayerSkill[] = [], weapon: "sword" | "unarmed" | "large_shield" = "sword") {
+function setup(stats: Partial<Stats>, monster = "green_slime", skills: PlayerSkill[] = [], weapon: WeaponType = "sword") {
   // Build stats directly so tests can use values beyond the starting points.
-  const p = newCharacter({ name: "Tester", appearance: "", weapon, stats: {} }, "p1");
-  p.stats = { ...p.stats, ...stats };
+  const p = newCharacter({ name: "Tester", classId: "free", stats: {} }, "p1");
+  p.weapon = weapon;
+  p.stats = { ...emptyStats(), ...stats };
   const d = derive(p, skills, defs, null);
   p.currentHp = d.maxHp;
   p.currentMp = d.maxMp;
@@ -90,7 +92,7 @@ describe("turn resolution", () => {
   });
 
   it("Iron Endurance doubles VIT", () => {
-    const p = newCharacter({ name: "Tank", appearance: "", weapon: "large_shield", stats: { VIT: 10 } }, "p");
+    const p = newCharacter({ name: "Tank", classId: "tanker", stats: { VIT: 5 } }, "p");
     p.stats.VIT = 20;
     const owned: PlayerSkill[] = [{ skillId: "iron_endurance", status: "owned", equipped: true, stage: 1, evolvedInto: null, unlockedAt: "" }];
     expect(derive(p, owned, defs, null).stats.VIT).toBe(40);
@@ -121,8 +123,10 @@ describe("progression numbers", () => {
     const { grantExp } = await import("../src/lib/game/character");
     expect(STARTING_POINTS).toBe(10);
     expect(POINTS_PER_LEVEL).toBe(5);
-    expect(() => newCharacter({ name: "Greedy", appearance: "", weapon: "sword", stats: { STR: 11 } }, "x")).toThrow(/10 points/);
-    const p = newCharacter({ name: "Ok", appearance: "", weapon: "sword", stats: { STR: 10 } }, "y");
+    expect(() => newCharacter({ name: "Greedy", classId: "free", stats: { STR: 11 } }, "x")).toThrow(/10 points/);
+    expect(() => newCharacter({ name: "Greedy", classId: "swordsman", stats: { STR: 6 } }, "x")).toThrow(/5 points/);
+    const p = newCharacter({ name: "Ok", classId: "swordsman", stats: { STR: 5 } }, "y");
+    expect(p.stats.STR).toBe(10);
     expect(p.freePoints).toBe(0);
     const maxed = grantExp(p, 1e12).player;
     expect(maxed.level).toBe(LEVEL_CAP);

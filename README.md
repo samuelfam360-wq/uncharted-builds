@@ -1,6 +1,6 @@
 # Uncharted Builds
 
-A browser RPG where the game watches how you play and rewards your habits with hidden skills. No classes, no skill trees.
+A browser RPG where the game watches how you play and rewards your habits with hidden skills. Classes only set your starting points and wood weapon; there are no skill trees.
 
 This is the **Phase 1 prototype** from the design doc: single player, stats and combat, 20 hidden skills, one field, one dungeon with a boss, one unique item, and an admin page for editing skill conditions.
 
@@ -55,7 +55,7 @@ Skills live as data in `skill_definitions`. Editing them on `/admin` changes fut
 
 ## Tuning numbers (open questions from the doc)
 
-All in `src/lib/game/constants.ts`: 10 starting points (all free until starting classes are added), 5 points per level, level cap 100, +10 HP and +5 MP per point. Ghost Step's condition is lowered from 1,000 to 100 dodges in a row for the prototype; raise it on `/admin` once fights are faster.
+All in `src/lib/game/constants.ts`: 10 starting points (classes fix 5 of them, the Free Class keeps all 10 free; see `src/lib/game/data/classes.ts`), 5 points per level, level cap 100, +10 HP and +5 MP per point. Ghost Step's condition is lowered from 1,000 to 100 dodges in a row for the prototype; raise it on `/admin` once fights are faster.
 
 ## Checks
 

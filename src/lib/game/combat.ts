@@ -326,12 +326,12 @@ export function resolveTurn(
     const w = WEAPONS[state.weapon];
     switch (action.type) {
       case "attack": {
-        const unarmedStat = state.weapon === "unarmed" ? d.passive.unarmed_stat : undefined;
+        const unarmedStat = w.fists ? d.passive.unarmed_stat : undefined;
         playerAttack({
-          name: state.weapon === "unarmed" ? "Punch" : `${w.name} attack`,
+          name: w.fists ? "Punch" : `${w.name} attack`,
           element: w.element,
           multiplier: 1,
-          scaleStat: unarmedStat,
+          scaleStat: unarmedStat ?? w.scaleStat,
           weaponAttack: w.attack,
           critBonus: w.critBonus,
           hitBonus: w.hitBonus,
@@ -513,7 +513,7 @@ export function resolveTurn(
       const m = MONSTERS[E.monsterId];
       log(`${E.name} is defeated!`);
       inc(deltas, "enemies_defeated");
-      inc(deltas, `kills_${state.weapon}`);
+      inc(deltas, `kills_${WEAPONS[state.weapon].fists ? "unarmed" : state.weapon}`);
       inc(deltas, `defeated_${m.id}`);
       if (E.isBoss) inc(deltas, "bosses_defeated");
       if (E.hitsTaken === 1) inc(deltas, "one_hit_kills");
