@@ -1,26 +1,56 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-ink: #0f1412;
+  --color-panel: #18201c;
+  --color-panel-2: #212b26;
+  --color-line: #2f3b35;
+  --color-text: #e6ece8;
+  --color-muted: #93a39a;
+  --color-moss: #7fbf7a;
+  --color-gold: #e2b85c;
+  --color-blood: #e0675c;
+  --color-mana: #6aa6e8;
+  --color-venom: #b07ce8;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html {
+  color-scheme: dark;
 }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: radial-gradient(ellipse at top, #1d2a23 0%, var(--color-ink) 60%);
+  background-attachment: fixed;
+  color: var(--color-text);
+  min-height: 100vh;
 }
+
+@utility panel {
+  @apply rounded-xl border border-line bg-panel/90 p-4 shadow-lg shadow-black/30;
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1 rounded-lg border border-line bg-panel-2 px-3 py-2 text-sm font-medium transition hover:border-moss hover:text-white disabled:cursor-not-allowed disabled:opacity-40;
+}
+@utility btn-primary {
+  @apply btn border-moss/60 bg-moss/15 text-moss hover:bg-moss/25;
+}
+@utility btn-danger {
+  @apply btn border-blood/50 text-blood hover:bg-blood/10;
+}
+@utility label {
+  @apply text-xs font-semibold uppercase tracking-wider text-muted;
+}
+@utility input {
+  @apply w-full rounded-lg border border-line bg-ink px-3 py-2 text-sm outline-none focus:border-moss;
+}
+@utility title {
+  @apply font-serif tracking-wide;
+}
+
+@keyframes unlock-glow {
+  0% { transform: scale(0.9); opacity: 0; box-shadow: 0 0 0 rgba(226, 184, 92, 0); }
+  40% { transform: scale(1.03); opacity: 1; box-shadow: 0 0 60px rgba(226, 184, 92, 0.45); }
+  100% { transform: scale(1); box-shadow: 0 0 24px rgba(226, 184, 92, 0.25); }
+}
+.unlock-card { animation: unlock-glow 0.9s ease-out both; }
