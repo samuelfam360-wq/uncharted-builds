@@ -76,3 +76,27 @@ describe("full play-through on the memory store", () => {
     expect(st.skills.map((s) => s.id)).toContain("first_light");
   });
 });
+
+describe("map terrain", () => {
+  it("swamp tiles always fight in the swamp, grass tiles never do", async () => {
+    const store = new MemoryStore();
+    const p = await game.createCharacter(store, { name: "Walker", classId: "free", stats: {} });
+    for (let i = 0; i < 10; i++) {
+      await game.rest(store, p.id);
+      const s = await game.beginBattle(store, p.id, "mirewood_fields", Math.random, "swamp");
+      expect(s.battle.hazard).toBe("Poison swamp");
+      await game.battleAction(store, p.id, { type: "flee" }, () => 0);
+      await game.rest(store, p.id);
+      const g = await game.beginBattle(store, p.id, "mirewood_fields", () => 0, "grass");
+      expect(g.battle.hazard).toBeNull();
+      await game.battleAction(store, p.id, { type: "flee" }, () => 0);
+    }
+  });
+
+  it("the battle log reports where its lines start", async () => {
+    const store = new MemoryStore();
+    const p = await game.createCharacter(store, { name: "Logger", classId: "free", stats: {} });
+    const s = await game.beginBattle(store, p.id, "mirewood_fields", Math.random, "grass");
+    expect(s.battle.logStart).toBe(0);
+  });
+});

@@ -166,6 +166,7 @@ export function publicBattle(b: BattleState) {
     player: { hp: b.player.hp, maxHp: b.player.maxHp, mp: b.player.mp, maxMp: b.player.maxMp, statuses: b.player.statuses },
     enemy: { name: b.enemy.name, hp: Math.max(0, b.enemy.hp), maxHp: b.enemy.maxHp, statuses: b.enemy.statuses, isBoss: b.enemy.isBoss },
     log: b.log.slice(-40),
+    logStart: Math.max(0, b.log.length - 40), // index of log[0] in the full battle log
     over: b.over,
     result: b.result,
     rewards: b.rewards,
@@ -272,7 +273,13 @@ export async function eat(store: GameStore, playerId: string, itemId: string, rn
 
 // ---------- Battles ----------
 
-export async function beginBattle(store: GameStore, playerId: string, zoneId: string, rng: Rng = Math.random) {
+/**
+ * Where on the field map the fight starts. "swamp" always fights in the poison
+ * swamp, "grass" never does; leaving it out keeps the old random roll.
+ */
+export type Terrain = "grass" | "swamp";
+
+export async function beginBattle(store: GameStore, playerId: string, zoneId: string, rng: Rng = Math.random, terrain?: Terrain) {
   if (await store.getActiveBattle(playerId)) throw new GameError("You're already in a battle");
   const zone = ZONES[zoneId];
   if (!zone || zone.kind === "town") throw new GameError("There's nothing to fight there");
@@ -294,7 +301,10 @@ export async function beginBattle(store: GameStore, playerId: string, zoneId: st
     const enc = zone.encounters!;
     let roll = rng() * enc.reduce((n, e) => n + e.weight, 0);
     monsterId = (enc.find((e) => (roll -= e.weight) < 0) ?? enc[0]).monsterId;
-    if (zone.hazard && rng() < zone.hazard.chance) hazard = zone.hazard;
+    if (zone.hazard) {
+      if (terrain === "swamp") hazard = zone.hazard;
+      else if (terrain === undefined && rng() < zone.hazard.chance) hazard = zone.hazard;
+    }
   }
 
   const state = startBattle({
