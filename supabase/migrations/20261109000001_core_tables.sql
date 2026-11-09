@@ -238,9 +238,11 @@ from skill_definitions d
 left join player_skills ps on ps.skill_id = d.id
 group by d.id, d.name;
 
-revoke all on function public.apply_counters(uuid, jsonb) from public;
-revoke all on function public.grant_skill(uuid, text, text, boolean, int, text) from public;
-revoke all on function public.claim_unique_item(text, uuid) from public;
+-- Supabase grants new functions to anon and authenticated by default; only the server may call these.
+revoke all on function public.apply_counters(uuid, jsonb) from public, anon, authenticated;
+revoke all on function public.grant_skill(uuid, text, text, boolean, int, text) from public, anon, authenticated;
+revoke all on function public.claim_unique_item(text, uuid) from public, anon, authenticated;
+revoke all on public.skill_ownership_stats from anon, authenticated;
 grant execute on function public.apply_counters(uuid, jsonb) to service_role;
 grant execute on function public.grant_skill(uuid, text, text, boolean, int, text) to service_role;
 grant execute on function public.claim_unique_item(text, uuid) to service_role;
