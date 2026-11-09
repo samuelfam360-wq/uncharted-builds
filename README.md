@@ -34,6 +34,10 @@ All tables have row level security on with no public policies. The browser never
 | Monsters, zones, items | `src/lib/game/data/world.ts` |
 | Damage formula, hit/evasion, statuses, hazards | `src/lib/game/combat.ts` |
 | Character creation, derived stats, locks, slots | `src/lib/game/character.ts` |
+| Starting classes and look options | `src/lib/game/data/classes.ts` |
+| Top-down maps (towns, fields, warps, signs, villagers) | `src/lib/game/data/maps.ts` |
+| Pixel art drawn in code (tiles, people, monsters) | `src/components/world/art.ts` |
+| Walkable map, battle screen, D-pad/keyboard input | `src/components/world/` |
 | Action → combat → counters → unlocks pipeline | `src/lib/game/service.ts` |
 | Counter keys | `src/lib/game/counters.ts` |
 | Admin validation schema | `src/lib/game/schema.ts` |
