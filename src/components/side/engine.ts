@@ -1199,6 +1199,8 @@ export class Engine {
     const r = rollHit(this.rng, spec, attacker, this.defenderOf(m), p.hp / p.maxHp, mods);
     let dmg = r.dmg;
     if (!r.miss && counter) dmg = Math.round(dmg * PARRY_COUNTER_MULT);
+    // Spellblade: sword hits carry extra magic damage
+    if (!r.miss && ps.spellblade && this.weapon === "sword" && !skillId) dmg += Math.ceil(this.combat.stats.INT * ps.spellblade.int_mult);
     if (execute) dmg = Math.max(1, Math.ceil(m.hp));
     const hit: ReportHit = { dmg: r.miss ? 0 : dmg, crit: r.crit, miss: r.miss };
     if (skillId) hit.skillId = skillId;
@@ -1256,14 +1258,16 @@ export class Engine {
     this.applyHit(m, hit, spec.status);
     if (r.miss) return;
     // Soul Drain: a share of the damage comes back as HP, and any extra becomes a shield
+    // (Life Palm: unarmed hits heal you too, with no shield)
     const sd = ps.soul_drain;
-    if (sd && !p.dead) {
+    const pct = (sd?.pct ?? 0) + (ps.life_palm ? ps.life_palm.pct : 0);
+    if (pct > 0 && !p.dead) {
       // fractions carry over, so small hits still drain over time
-      const raw = dmg * sd.pct + this.drainCarry;
+      const raw = dmg * pct + this.drainCarry;
       const drain = Math.floor(raw);
       this.drainCarry = raw - drain;
       const over = drain - this.healPlayer(drain, "drain");
-      if (over > 0) p.shield = Math.min(Math.round(p.maxHp * sd.max_shield), p.shield + over);
+      if (over > 0 && sd) p.shield = Math.min(Math.round(p.maxHp * sd.max_shield), p.shield + over);
     }
     // Chain Catastrophe: an enemy your spell kills explodes into the same spell
     const cc = ps.chain_catastrophe;
@@ -1363,8 +1367,8 @@ export class Engine {
     }
     const heal = Math.max(0, Math.min(p.maxHp - p.hp, amount));
     p.hp += heal;
-    if (kind === "skill" || kind === "food") this.acc.healed += heal;
     if (kind === "drain") this.acc.drained += heal;
+    else this.acc.healed += heal;
     if (this.bossFight && heal > 0) {
       this.bossFight.healed += heal;
       this.acc.boss.healed += heal;
@@ -1862,6 +1866,12 @@ export class Engine {
     this.bladeReady = false;
     if (p.blocking) acc.blocks++;
     acc.blockedDamage += r.blocked;
+    // Iron Sanctuary: blocking heals part of what your guard soaked
+    const sanct = this.combat.passive.iron_sanctuary;
+    if (p.blocking && sanct && r.blocked > 0) {
+      const heal = this.healPlayer(Math.floor(r.blocked * sanct.pct), "regen");
+      if (heal > 0) this.text(p.x, p.y - PLAYER_H - 40, `+${heal}`, "#5fd36a", 20);
+    }
     if (p.blocking && this.combat.passive.vault) {
       this.vaultStore += r.blocked;
       acc.guardStored += r.blocked;

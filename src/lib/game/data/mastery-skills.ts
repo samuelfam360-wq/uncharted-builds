@@ -488,6 +488,42 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     effect: { weapons: ["lance"], active: { ultimate: { gauge: "boss_charges", tiers: [15, 30, 60] } } },
   }),
 
+  // ---------- Combo skills ----------
+  def({
+    id: "spellblade",
+    name: "Spellblade",
+    description: "Your sword hits add bonus magic damage based on INT.",
+    kind: "passive",
+    conditions: {
+      all: [
+        { counter: "kills_sword", op: ">=", value: 1000 },
+        { counter: "spell_kills", op: ">=", value: 1000 },
+      ],
+    },
+    effect: { weapons: ["sword"], passive: { spellblade: { int_mult: 0.5 } } },
+  }),
+  def({
+    id: "iron_sanctuary",
+    name: "Iron Sanctuary",
+    description: "Blocking heals you and nearby allies.",
+    kind: "passive",
+    conditions: {
+      all: [
+        { counter: "defend_used", op: ">=", value: 5000 },
+        { counter: "hp_healed", op: ">=", value: 100000 },
+      ],
+    },
+    effect: { passive: { iron_sanctuary: { pct: 0.5 } } },
+  }),
+  def({
+    id: "life_palm",
+    name: "Life Palm",
+    description: "Your unarmed hits heal you for part of the damage dealt.",
+    kind: "passive",
+    conditions: { counter: "hp_healed_unarmed", op: ">=", value: 50000 },
+    effect: { weapons: ["unarmed", "strength_bracelet"], passive: { life_palm: { pct: 0.1 } } },
+  }),
+
   // ---------- Multi-mastery ----------
   def({
     id: "wanderers_path",

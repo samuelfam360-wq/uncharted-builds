@@ -216,6 +216,12 @@ export interface PassiveEffect {
   iron_momentum?: boolean;
   /** Sky Lance: a lance attack in the air dives down and hits everything where you land. */
   sky_lance?: { reach: number };
+  /** Spellblade: sword hits add magic damage equal to this share of your INT. */
+  spellblade?: { int_mult: number };
+  /** Iron Sanctuary: blocking heals you for this share of the damage your guard soaked. */
+  iron_sanctuary?: { pct: number };
+  /** Life Palm: unarmed hits heal you for this share of their damage. */
+  life_palm?: { pct: number };
 }
 
 export interface SkillEffect {

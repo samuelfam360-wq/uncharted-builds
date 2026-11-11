@@ -110,6 +110,12 @@ function counterText(key: string, cur: number, target: number): string {
       return `Land 100 bow hits in a row on one target without missing, ${n(left)} more times`;
     case "spells_survived":
       return `Survive ${n(left)} more enemy spells`;
+    case "spell_kills":
+      return `Defeat ${n(left)} more enemies with spells`;
+    case "hp_healed":
+      return `Heal ${n(left)} more HP`;
+    case "hp_healed_unarmed":
+      return `Heal ${n(left)} more HP while fighting with your fists (empty hands or a strength bracelet)`;
     case "spell_multikills_10":
       return `Defeat 10 enemies with a single spell, ${n(left)} more times`;
     case "zero_mp_kills":

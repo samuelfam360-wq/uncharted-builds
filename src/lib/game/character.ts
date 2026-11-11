@@ -223,6 +223,9 @@ export function derive(
         "comet_charge",
         "iron_momentum",
         "sky_lance",
+        "spellblade",
+        "iron_sanctuary",
+        "life_palm",
       ] as const) {
         if (ps[key] !== undefined) (passive as Record<string, unknown>)[key] = ps[key];
       }
