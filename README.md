@@ -35,9 +35,15 @@ All tables have row level security on with no public policies. The browser never
 | Damage formula, hit/evasion, statuses, hazards | `src/lib/game/combat.ts` |
 | Character creation, derived stats, locks, slots | `src/lib/game/character.ts` |
 | Starting classes and look options | `src/lib/game/data/classes.ts` |
-| Top-down maps (towns, fields, warps, signs, villagers) | `src/lib/game/data/maps.ts` |
-| Pixel art drawn in code (tiles, people, monsters) | `src/components/world/art.ts` |
-| Walkable map, battle screen, D-pad/keyboard input | `src/components/world/` |
+| Side-view maps (ground, platforms, ladders, swamp, portals, villagers, monster spawns, dungeon rooms) | `src/lib/game/data/sidemaps.ts` |
+| Live combat math and the report the server checks (hit caps, parry window) | `src/lib/game/live.ts`, `liveEnter` / `liveReport` in `service.ts` |
+| The live game: movement, monster AI and wind-ups, parry, skills | `src/components/side/engine.ts` |
+| Drawing: the hero and every look option, monsters, buildings | `src/components/side/hero.ts`, `sprites.ts`, `render.ts` |
+| On-screen mobile controls and the HUD | `src/components/side/TouchControls.tsx`, `SideGame.tsx` |
+
+Art: ground, ladders, backgrounds and most monsters come from Kenney's "New Platformer Pack" (CC0, free for any use, credit not required) in `public/art/kenney/`. The hero, villagers, buildings, the wolf and the bat are drawn in code in the same style.
+
+Controls on PC: arrows or WASD move and climb, Space jumps (Down + Space drops through a platform), Z or J attacks (hold to keep swinging), X or K blocks (press it right as a blow lands to parry), 1-4 use skills, E talks or enters, Q eats food, M opens the menu. On phones the same buttons are on screen.
 | Action → combat → counters → unlocks pipeline | `src/lib/game/service.ts` |
 | Counter keys | `src/lib/game/counters.ts` |
 | Admin validation schema | `src/lib/game/schema.ts` |
