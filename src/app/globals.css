@@ -55,17 +55,13 @@ body {
 }
 .unlock-card { animation: unlock-glow 0.9s ease-out both; }
 
-/* FireRed-style boxes for the map and battle screen (original styling) */
+/* Text boxes for talking, in the same style as the game art */
 .pixel-box {
-  background: #f8f8f0;
-  color: #2a2a32;
-  border: 3px solid #2a2a32;
-  border-radius: 6px;
-  box-shadow: inset 0 0 0 2px #c8d0e0;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  background: #fdf6e3;
+  color: #2f2a3b;
+  border: 4px solid #2f2a3b;
+  border-radius: 14px;
+  box-shadow: 0 4px 0 #2f2a3b;
+  font-family: ui-rounded, system-ui, sans-serif;
+  font-weight: 700;
 }
-@keyframes encounter-flash {
-  0%, 40%, 80% { background: rgba(0, 0, 0, 0.85); }
-  20%, 60%, 100% { background: rgba(255, 255, 255, 0.6); }
-}
-.encounter-flash { animation: encounter-flash 0.45s steps(1) infinite; }
