@@ -311,7 +311,7 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
   drawPlayer(ctx, e, info);
 
   // projectiles
-  for (const pr of e.projectiles) drawProjectile(ctx, pr.x, pr.y, pr.vx, pr.kind, now);
+  for (const pr of e.projectiles) drawProjectile(ctx, pr.x, pr.y, pr.vx, pr.vy, pr.kind, now);
 
   ctx.drawImage(layers.front, 0, 0);
 
@@ -555,11 +555,13 @@ function drawPlayer(ctx: Ctx, e: Engine, info: DrawInfo) {
   ctx.restore();
 }
 
-function drawProjectile(ctx: Ctx, x: number, y: number, vx: number, kind: string, now: number) {
+function drawProjectile(ctx: Ctx, x: number, y: number, vx: number, vy: number, kind: string, now: number) {
   const dir = vx >= 0 ? 1 : -1;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(dir, 1);
+  // tilt to match the flight path (aimed shots can fly up or down)
+  if (vy) ctx.rotate(Math.atan2(vy, Math.abs(vx)));
   switch (kind) {
     case "arrow":
       ctx.strokeStyle = OUTLINE;

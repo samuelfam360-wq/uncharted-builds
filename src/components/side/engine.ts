@@ -1038,6 +1038,44 @@ export class Engine {
   }
 
   /** Alive monsters ahead of the player, nearest first. */
+  /**
+   * Where a shot should fly: the middle of the nearest live monster in front of you
+   * that the shot can reach in a straight line (no walls or floors in the way).
+   * Monsters below or above you count, as long as the shot doesn't have to go
+   * steeper than about 60 degrees. Null when there is nothing to aim at.
+   */
+  private aimAt(x: number, y: number, range: number): { x: number; y: number } | null {
+    const p = this.player;
+    let best: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (const m of this.monsters) {
+      if (m.state === "dead") continue;
+      const b = MONSTER_LOOKS[m.id].body;
+      const tx = m.x;
+      const ty = m.y - b.h / 2;
+      const dx = (tx - x) * p.facing;
+      if (dx < -b.w / 2) continue; // behind you
+      const dy = ty - y;
+      if (Math.abs(dy) > Math.max(dx, 0) * 1.8 + 40) continue; // too steep
+      const d = Math.hypot(tx - x, dy);
+      if (d > range || d >= bestD) continue;
+      if (!this.clearShot(x, y, tx, ty)) continue;
+      best = { x: tx, y: ty };
+      bestD = d;
+    }
+    return best;
+  }
+
+  /** True when nothing solid sits on the straight line between two points. */
+  private clearShot(x0: number, y0: number, x1: number, y1: number): boolean {
+    const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / (TILE / 4));
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      if (this.solidAt(Math.floor((x0 + (x1 - x0) * t) / TILE), Math.floor((y0 + (y1 - y0) * t) / TILE))) return false;
+    }
+    return true;
+  }
+
   private monstersInFront(front: number, back: number, height: number): Monster[] {
     const p = this.player;
     const top = p.y - PLAYER_H - height / 2 + PLAYER_H / 2;
@@ -1106,13 +1144,19 @@ export class Engine {
     if (counter) p.counterUntil = 0;
     if (feel.projectile) {
       const pr = feel.projectile;
+      const range = pr.range * (this.combat.passive.hawk_line?.range ?? 1);
+      const x = p.x + p.facing * 30;
+      const y = p.y - 46;
+      // Aim at the nearest monster in front, even one lower or higher than you
+      const aim = this.aimAt(x, y, range);
+      const len = aim ? Math.hypot(aim.x - x, aim.y - y) || 1 : 1;
       this.projectiles.push({
-        x: p.x + p.facing * 30,
-        y: p.y - 46,
-        vx: p.facing * pr.speed,
-        vy: 0,
-        left: pr.range * (this.combat.passive.hawk_line?.range ?? 1),
-        range: pr.range * (this.combat.passive.hawk_line?.range ?? 1),
+        x,
+        y,
+        vx: aim ? ((aim.x - x) / len) * pr.speed : p.facing * pr.speed,
+        vy: aim ? ((aim.y - y) / len) * pr.speed : 0,
+        left: range,
+        range,
         kind: pr.kind,
         fromPlayer: true,
         spec,
@@ -1588,7 +1632,8 @@ export class Engine {
         const m = this.monsters.find((x) => {
           if (x.state === "dead") return false;
           const b = MONSTER_LOOKS[x.id].body;
-          return Math.abs(x.x - pr.x) < b.w / 2 + 6 && pr.y <= x.y + 4 && pr.y >= x.y - b.h - 4;
+          // a little forgiving at the top, so a level shot still clips short monsters
+          return Math.abs(x.x - pr.x) < b.w / 2 + 6 && pr.y <= x.y + 4 && pr.y >= x.y - Math.max(b.h, 50) - 4;
         });
         if (m) {
           pr.dead = true;
