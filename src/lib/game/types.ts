@@ -129,7 +129,14 @@ export interface ActiveEffect {
 }
 
 /** What fills an ultimate's gauge during one boss fight. */
-export type GaugeSource = "boss_hits" | "boss_parries" | "boss_dodges" | "boss_weapon_hits";
+export type GaugeSource =
+  | "boss_hits"
+  | "boss_parries"
+  | "boss_dodges"
+  | "boss_weapon_hits"
+  | "boss_mp_spent" // MP spent in the boss fight (Star Fall)
+  | "boss_healed" // HP healed or drained in the boss fight (Judgment of Mercy)
+  | "boss_charges"; // lance charges that hit the boss (Dragonpiercer)
 
 /**
  * Tiers: [half, kill, kill + EXP]. Firing at the first tier deals 50% of the
@@ -138,6 +145,8 @@ export type GaugeSource = "boss_hits" | "boss_parries" | "boss_dodges" | "boss_w
 export interface UltimateSpec {
   gauge: GaugeSource;
   tiers: [number, number, number];
+  /** The top tier also finishes every other monster on screen (Star Fall's meteor shower). */
+  field?: boolean;
 }
 
 export interface PassiveEffect {
@@ -191,6 +200,22 @@ export interface PassiveEffect {
   hawk_line?: { range: number; max_mult: number };
   /** Marked Prey: your last target is marked and your shots never miss it. */
   marked_prey?: boolean;
+  /** Spell Thief: absorb each enemy's first spell in a fight and cast it back, stronger. */
+  spell_thief?: { mult: number };
+  /** Chain Catastrophe: enemies your spells kill explode into the same spell. */
+  chain_catastrophe?: { radius: number };
+  /** Blood Sorcery: at 0 MP, skills cost HP (this share of max HP per MP) and hit harder. */
+  blood_sorcery?: { hp_per_mp: number; mult: number };
+  /** Grace Rebound: your first heal below this share of HP each fight is multiplied. */
+  grace_rebound?: { below: number; mult: number };
+  /** Soul Drain: hits heal you for a share of their damage; extra HP becomes a shield (up to max_shield x max HP). */
+  soul_drain?: { pct: number; max_shield: number };
+  /** Comet Charge: lance charges hit harder the farther you ran, up to max_mult. */
+  comet_charge?: { max_mult: number };
+  /** Iron Momentum: while charging you can't be stunned or knocked back. */
+  iron_momentum?: boolean;
+  /** Sky Lance: a lance attack in the air dives down and hits everything where you land. */
+  sky_lance?: { reach: number };
 }
 
 export interface SkillEffect {

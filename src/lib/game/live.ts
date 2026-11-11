@@ -154,6 +154,9 @@ export const PARRY_WINDOW_MS = 220;
 /** A parried monster is stunned this long and takes a stronger counter. */
 export const PARRY_STUN_MS = 1400;
 export const PARRY_COUNTER_MULT = 1.5;
+/** Lance charges: run at least CHARGE_MIN pixels in one direction, then attack. A full charge is CHARGE_FULL. */
+export const CHARGE_FULL = 600;
+export const CHARGE_MIN_SHARE = 0.5;
 /** A boss finished by an ultimate's top tier gives this much EXP (solo; parties come later). */
 export const ULT_EXP_BONUS = 1.2;
 
@@ -171,6 +174,9 @@ export interface ReportHit {
   ult?: 1 | 2 | 3; // ultimate fired at this tier
   stealth?: number; // Silent Finish multiplier on a first hit from hiding
   combo7?: boolean; // Seven Strikes: the 7th hit of a combo
+  chain?: boolean; // Chain Catastrophe: an explosion from an enemy your spell killed
+  blood?: boolean; // Blood Sorcery: a skill cast with HP at 0 MP
+  charge?: number; // a lance charge: how far you ran, as a share of a full run (0.5 to 1)
 }
 
 /** Counts for the boss fight in progress, since the last report. */
@@ -181,6 +187,9 @@ export interface BossTally {
   dodges: number; // boss attacks dodged
   weaponHits: number; // your hits that landed on the boss
   dmg: number; // damage your hits did to the boss
+  mp: number; // MP spent on skills during the fight
+  healed: number; // HP healed or drained during the fight
+  charges: number; // lance charges that hit the boss
 }
 
 export interface LiveReport {
@@ -227,6 +236,16 @@ export interface LiveReport {
   farHits: number; // hits from near the end of your range
   markedRuns: number; // 100 hits in a row on one target without a miss
   killSkill?: string; // kill: the skill that landed the killing blow
+  spellsTaken: number; // enemy spells that hit you and you lived
+  spellsAbsorbed: number; // enemy spells Spell Thief absorbed
+  lowHpHeals: number; // heals started below 5% HP
+  healed: number; // HP from skill heals and food (after Grace Rebound)
+  drained: number; // HP Soul Drain gave back
+  bloodUses: Record<string, number>; // skill casts paid with HP (Blood Sorcery)
+  killCast?: number; // kill: the spell cast that killed it (one number per cast)
+  zeroMpKill?: boolean; // kill: by a spell whose cast took your MP to exactly 0
+  chargeKill?: boolean; // kill: by a lance charge from full distance
+  jumpKill?: boolean; // kill: by a lance attack made in the air
 }
 
 const STATUS_SET = new Set<string>(["poison", "paralysis", "burn", "freeze", "silence", "slow", "stun"]);
@@ -239,13 +258,17 @@ export function cleanReport(body: unknown): LiveReport {
   const hits = Array.isArray(b.hits) ? b.hits.slice(0, 5000) : [];
   const taken = (b.taken && typeof b.taken === "object" ? b.taken : {}) as Record<string, unknown>;
   const boss = (b.boss && typeof b.boss === "object" ? b.boss : {}) as Record<string, unknown>;
-  const skillUses: Record<string, number> = {};
-  if (b.skillUses && typeof b.skillUses === "object") {
-    for (const [k, v] of Object.entries(b.skillUses as Record<string, unknown>).slice(0, 50)) {
-      const n = num(v, 10000);
-      if (n > 0) skillUses[String(k)] = n;
+  const counts = (v: unknown) => {
+    const out: Record<string, number> = {};
+    if (v && typeof v === "object") {
+      for (const [k, x] of Object.entries(v as Record<string, unknown>).slice(0, 50)) {
+        const n = num(x, 10000);
+        if (n > 0) out[String(k)] = n;
+      }
     }
-  }
+    return out;
+  };
+  const skillUses = counts(b.skillUses);
   return {
     type,
     zoneId: String(b.zoneId ?? ""),
@@ -264,6 +287,9 @@ export function cleanReport(body: unknown): LiveReport {
         ult: o.ult === 1 || o.ult === 2 || o.ult === 3 ? o.ult : undefined,
         stealth: o.stealth === undefined ? undefined : num(o.stealth, 100),
         combo7: o.combo7 === true,
+        chain: o.chain === true,
+        blood: o.blood === true,
+        charge: typeof o.charge === "number" && Number.isFinite(o.charge) ? Math.max(0, Math.min(1, o.charge)) : undefined,
       };
     }),
     directToTarget: num(b.directToTarget),
@@ -296,6 +322,9 @@ export function cleanReport(body: unknown): LiveReport {
       dodges: num(boss.dodges, 100000),
       weaponHits: num(boss.weaponHits, 100000),
       dmg: num(boss.dmg),
+      mp: num(boss.mp),
+      healed: num(boss.healed),
+      charges: num(boss.charges, 100000),
     },
     bossEnd: b.bossEnd === true,
     duel: b.duel === true,
@@ -309,5 +338,15 @@ export function cleanReport(body: unknown): LiveReport {
     farHits: num(b.farHits, 100000),
     markedRuns: num(b.markedRuns, 1000),
     killSkill: typeof b.killSkill === "string" ? b.killSkill.slice(0, 64) : undefined,
+    spellsTaken: num(b.spellsTaken, 100000),
+    spellsAbsorbed: num(b.spellsAbsorbed, 100000),
+    lowHpHeals: num(b.lowHpHeals, 10000),
+    healed: num(b.healed),
+    drained: num(b.drained),
+    bloodUses: counts(b.bloodUses),
+    killCast: b.killCast === undefined ? undefined : num(b.killCast, 1e12),
+    zeroMpKill: b.zeroMpKill === true,
+    chargeKill: b.chargeKill === true,
+    jumpKill: b.jumpKill === true,
   };
 }

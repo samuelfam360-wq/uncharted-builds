@@ -336,6 +336,158 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     enabled: false, // waits for boss weak points
   }),
 
+  // ---------- Staff mastery ----------
+  def({
+    id: "storm_sovereign",
+    name: "Storm Sovereign",
+    description:
+      "Change the weather of the whole zone for 3 minutes: a heat wave, a thunderstorm, a blizzard or a hurricane, by element. It hits everyone in the zone, friend and foe.",
+    kind: "active",
+    conditions: { counter: "element_spells_outdoors", op: ">=", value: 10000 },
+    effect: {},
+    enabled: false, // waits for elements and weather
+  }),
+  def({
+    id: "spell_thief",
+    name: "Spell Thief",
+    description: "When an enemy spell hits you, you absorb it and cast it back at double power. Once per enemy per fight.",
+    kind: "passive",
+    conditions: { counter: "spells_survived", op: ">=", value: 1000 },
+    effect: { passive: { spell_thief: { mult: 2 } } },
+  }),
+  def({
+    id: "chain_catastrophe",
+    name: "Chain Catastrophe",
+    description: "Every enemy your spell kills explodes into the same spell, so one spell can chain across the battlefield. Needs a staff in hand.",
+    kind: "passive",
+    conditions: { counter: "spell_multikills_10", op: ">=", value: 100 },
+    effect: { weapons: ["staff"], passive: { chain_catastrophe: { radius: 150 } } },
+  }),
+  def({
+    id: "blood_sorcery",
+    name: "Blood Sorcery",
+    description: "At 0 MP, your attack spells cost HP instead (1% of max HP per MP) and hit at double power. Needs a staff in hand.",
+    kind: "passive",
+    conditions: { counter: "zero_mp_kills", op: ">=", value: 100 },
+    effect: { weapons: ["staff"], passive: { blood_sorcery: { hp_per_mp: 0.01, mult: 2 } } },
+  }),
+  def({
+    id: "star_fall",
+    name: "Star Fall",
+    description:
+      "Ultimate, bosses only. MP you spend in the boss fight charges the gauge. 500: a meteor for 50% of the boss's HP (once per fight, resets the gauge). 1,000: a meteor that ends the boss. 2,000: a meteor shower that ends the boss and wipes the field, + 20% EXP.",
+    kind: "active",
+    conditions: { counter: "boss_fight_mp_spent_best", op: ">=", value: 5000 },
+    effect: { active: { ultimate: { gauge: "boss_mp_spent", tiers: [500, 1000, 2000], field: true } } },
+  }),
+
+  // ---------- Holy mastery ----------
+  def({
+    id: "grace_rebound",
+    name: "Grace Rebound",
+    description: "Your first heal below 10% HP in each fight is tripled.",
+    kind: "passive",
+    conditions: { counter: "low_hp_heals", op: ">=", value: 500 },
+    effect: { passive: { grace_rebound: { below: 0.1, mult: 3 } } },
+  }),
+  def({
+    id: "divine_blessing",
+    name: "Divine Blessing",
+    description: "You and your party get +10% to all stats for 60 seconds. 5 minute cooldown. After 20,000 buffs it grows to +20%.",
+    kind: "active",
+    conditions: { counter: "buffs_cast", op: ">=", value: 5000 },
+    effect: {},
+    enabled: false, // waits for buffs and parties
+  }),
+  def({
+    id: "soul_drain",
+    name: "Soul Drain",
+    description: "Every hit drains 25% of its damage as HP. HP beyond your max becomes a shield. Needs a healing bracelet in hand.",
+    kind: "passive",
+    conditions: { counter: "hits_healing_bracelet", op: ">=", value: 10000 },
+    effect: { weapons: ["healing_bracelet"], passive: { soul_drain: { pct: 0.25, max_shield: 1 } } },
+  }),
+  def({
+    id: "purify",
+    name: "Purify",
+    description: "When you cleanse a status, it bounces back to whoever caused it.",
+    kind: "passive",
+    conditions: { counter: "statuses_cleansed", op: ">=", value: 2000 },
+    effect: {},
+    enabled: false, // waits for a way to cleanse statuses
+  }),
+  def({
+    id: "judgment_of_mercy",
+    name: "Judgment of Mercy",
+    description:
+      "Ultimate, bosses only. HP you heal or drain in the boss fight charges the gauge. 10,000: a holy burst for 50% of the boss's HP (once per fight, resets the gauge). 20,000: a full kill. 40,000: a full kill + 20% EXP.",
+    kind: "active",
+    conditions: { counter: "boss_fight_healed_best", op: ">=", value: 50000 },
+    effect: { active: { ultimate: { gauge: "boss_healed", tiers: [10000, 20000, 40000] } } },
+  }),
+  def({
+    id: "curse_ward",
+    name: "Curse Ward",
+    description: "Curses on you last half as long. Needs a healing bracelet in hand.",
+    kind: "passive",
+    conditions: { counter: "curses_received", op: ">=", value: 500 },
+    effect: {},
+    enabled: false, // waits for the Curse status
+  }),
+  def({
+    id: "hallowed_soul",
+    name: "Hallowed Soul",
+    description: "Immune to Curse while Divine Blessing is active. Needs a healing bracelet in hand.",
+    kind: "passive",
+    conditions: { counter: "curses_received", op: ">=", value: 2000 },
+    effect: {},
+    enabled: false, // waits for the Curse status and Divine Blessing
+  }),
+
+  // ---------- Lance mastery ----------
+  def({
+    id: "comet_charge",
+    name: "Comet Charge",
+    description: "Charge damage grows with the distance you run, up to double at a full run. Needs a lance in hand.",
+    kind: "passive",
+    conditions: { counter: "max_charge_kills", op: ">=", value: 1000 },
+    effect: { weapons: ["lance"], passive: { comet_charge: { max_mult: 2 } } },
+  }),
+  def({
+    id: "skewer",
+    name: "Skewer",
+    description: "Thrusts pierce through every enemy in a line.",
+    kind: "passive",
+    conditions: { counter: "multi_thrusts", op: ">=", value: 500 },
+    effect: {},
+    enabled: false, // waits for thrusts that can hit more than one enemy
+  }),
+  def({
+    id: "iron_momentum",
+    name: "Iron Momentum",
+    description: "While charging, you can't be stunned or knocked back. Needs a lance in hand.",
+    kind: "passive",
+    conditions: { counter: "charges_done", op: ">=", value: 1000 },
+    effect: { weapons: ["lance"], passive: { iron_momentum: true } },
+  }),
+  def({
+    id: "sky_lance",
+    name: "Sky Lance",
+    description: "Attack in the air to dive down and crash, hitting every enemy where you land. Needs a lance in hand.",
+    kind: "passive",
+    conditions: { counter: "jump_kills", op: ">=", value: 100 },
+    effect: { weapons: ["lance"], passive: { sky_lance: { reach: 150 } } },
+  }),
+  def({
+    id: "dragonpiercer",
+    name: "Dragonpiercer",
+    description:
+      "Ultimate, bosses only. Each charge that hits the boss charges the gauge. 15: 50% of the boss's HP (once per fight, resets the gauge). 30: a full kill. 60: a full kill + 20% EXP. Needs a lance in hand.",
+    kind: "active",
+    conditions: { counter: "boss_fight_charge_hits_best", op: ">=", value: 100 },
+    effect: { weapons: ["lance"], active: { ultimate: { gauge: "boss_charges", tiers: [15, 30, 60] } } },
+  }),
+
   // ---------- Multi-mastery ----------
   def({
     id: "wanderers_path",

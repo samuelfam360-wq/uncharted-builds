@@ -5,6 +5,8 @@ import { WEAPONS } from "@/lib/game/constants";
 import { ITEMS, MONSTERS, ZONES, type EnemyAttack } from "@/lib/game/data/world";
 import {
   PARRY_COUNTER_MULT,
+  CHARGE_FULL,
+  CHARGE_MIN_SHARE,
   PARRY_STUN_MS,
   PARRY_WINDOW_MS,
   TICK_MS,
@@ -168,6 +170,13 @@ export interface Player {
   swampNext: number;
   regenNext: number;
   walkT: number;
+  shield: number; // Soul Drain: HP beyond your max, soaks damage first
+  runDist: number; // lance: how far you've run in one direction without stopping
+  runDir: 0 | 1 | -1;
+  runAt: number; // last time you were running
+  chargeRun: number; // the run-up behind the attack in progress
+  airAttack: boolean; // the attack in progress started in the air
+  diving: boolean; // Sky Lance: falling fast toward a crash
 }
 
 export interface Monster {
@@ -202,6 +211,10 @@ export interface Monster {
   defDown: number; // Armor Crusher: share of defense knocked off
   lastSkill?: string; // the skill behind the last hit it took
   escaped?: boolean; // you got away from it once (counted for Shadow Walk)
+  lastCast?: number; // the spell cast behind the last magic hit it took
+  lastZeroMp?: boolean; // that cast took your MP to exactly 0
+  lastCharge?: number; // the last hit was a lance charge (share of a full run)
+  lastAir?: boolean; // the last hit was a lance attack made in the air
 }
 
 /** A Phantom Legion shadow clone. */
@@ -223,6 +236,8 @@ interface FightState {
   firstShotAt: number | null;
   dodgeRun: number; // dodges in a row this fight (Phantom Legion's unlock)
   phantomCounted: boolean;
+  stolen: number[]; // Spell Thief: monsters whose spell you already took this fight
+  graceUsed: boolean; // Grace Rebound fired this fight
 }
 
 export interface Projectile {
@@ -240,6 +255,7 @@ export interface Projectile {
   monsterUid?: number;
   attack?: EnemyAttack;
   dead?: boolean;
+  castId?: number; // a spell shot's cast number
 }
 
 export interface FloatText {
@@ -300,7 +316,7 @@ const emptyAcc = () => ({
   minHpPct: 1,
   hitsTaken: 0,
   guardStored: 0,
-  boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } as BossTally,
+  boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0 } as BossTally,
   bossEnd: false,
   stormFights: 0,
   phantomFights: 0,
@@ -311,11 +327,30 @@ const emptyAcc = () => ({
   quickDraws: 0,
   farHits: 0,
   markedRuns: 0,
+  spellsTaken: 0,
+  spellsAbsorbed: 0,
+  lowHpHeals: 0,
+  healed: 0,
+  drained: 0,
+  bloodUses: {} as Record<string, number>,
   dirty: false,
 });
 
 /** A fight: from the first monster on you until none has been for a while. */
 const FIGHT_END_MS = 5000;
+/** Sky Lance: most monsters one crash can hit. */
+const SKY_LANCE_TARGETS = 10;
+/** A lance run-up survives a pause this short (letting go of the arrow to attack). */
+const RUN_GRACE_MS = 200;
+
+/** Extra facts about one hit you make. */
+interface HitOpts {
+  castId?: number; // the spell cast it came from
+  blood?: boolean; // Blood Sorcery cast
+  chain?: boolean; // Chain Catastrophe explosion
+  charge?: number; // lance charge, as a share of a full run
+  air?: boolean; // lance attack made in the air
+}
 /** Eye of the Storm's unlock counts fights with this many monsters on you at once. */
 export const STORM_FOES = 10;
 
@@ -325,6 +360,9 @@ export interface BossFight {
   parries: number; // boss attacks parried
   dodges: number; // boss attacks dodged
   weaponHits: number; // your hits that landed on it
+  mp: number; // MP you spent on skills
+  healed: number; // HP you healed or drained
+  charges: number; // lance charges that hit it
   others: boolean; // another monster joined in
   items: boolean; // you ate something
   gauges: Record<string, { base: number; half: boolean }>;
@@ -352,7 +390,7 @@ export class Engine {
   private rng: Rng;
   private events: EngineEvents;
   private spawnTimers = new Map<number, number>();
-  private pendingHits: { at: number; uid: number; spec: AttackSpec; skillId: string; counter: boolean }[] = [];
+  private pendingHits: { at: number; uid: number; spec: AttackSpec; skillId: string; counter: boolean; castId: number; blood: boolean }[] = [];
   /** Landed hits in a row without being hit (Hundred Cuts). */
   hitStreak = 0;
   /** Parries in a row without being hit (Blade Read). */
@@ -372,6 +410,10 @@ export class Engine {
   markedUid: number | null = null;
   private markRun = 0;
   bossFight: BossFight | null = null;
+  /** Each spell cast (skill or staff shot) gets a number, so kills can be traced to it. */
+  private castSeq = 0;
+  private drainCarry = 0;
+  private zeroCasts = new Set<number>();
 
   constructor(opts: {
     mapId: SideMapId;
@@ -441,6 +483,13 @@ export class Engine {
       swampNext: 0,
       regenNext: this.now + TICK_MS,
       walkT: 0,
+      shield: 0,
+      runDist: 0,
+      runDir: 0,
+      runAt: 0,
+      chargeRun: 0,
+      airAttack: false,
+      diving: false,
     };
   }
 
@@ -617,6 +666,7 @@ export class Engine {
     }
 
     if (p.onLadder) {
+      p.diving = false;
       p.vx = 0;
       p.vy = act ? ((h.down ? 1 : 0) - (h.up ? 1 : 0)) * CLIMB_SPEED * (slowed ? 0.5 : 1) : 0;
       p.y += p.vy * dt;
@@ -646,8 +696,29 @@ export class Engine {
     if (p.vx !== 0 && p.onGround) p.walkT += dt * 1000;
 
     p.vy = Math.min(MAX_FALL, p.vy + GRAVITY * dt);
+    const x0 = p.x;
+    const grounded = p.onGround;
     this.moveX(p, p.vx * dt);
+    // lance: how far you've actually run in one direction (a long run-up turns the next attack into a charge)
+    if (this.weapon === "lance") {
+      const moved = p.x - x0;
+      const d = moved > 0.01 ? 1 : moved < -0.01 ? -1 : 0;
+      if (d !== 0 && grounded) {
+        if (d !== p.runDir) p.runDist = 0;
+        p.runDir = d;
+        p.runDist += Math.abs(moved);
+        p.runAt = now;
+      } else if (grounded && now - p.runAt > RUN_GRACE_MS && now >= p.attackUntil) {
+        // stopped for a moment: the run-up is lost
+        p.runDist = 0;
+        p.runDir = 0;
+      }
+    } else p.runDist = 0;
     this.moveY(p, p.vy * dt);
+    if (p.diving && p.onGround) {
+      p.diving = false;
+      this.crash();
+    }
     // swamp
     const lowRow = Math.floor((p.y - 8) / TILE);
     p.inSwamp = isSwamp(tileAt(this.map, Math.floor((p.x - 10) / TILE), lowRow)) || isSwamp(tileAt(this.map, Math.floor((p.x + 10) / TILE), lowRow));
@@ -790,9 +861,8 @@ export class Engine {
     if (p.hp >= p.maxHp) return this.events.toast("You're already at full HP.");
     food.qty--;
     const item = ITEMS[food.itemId];
-    const heal = Math.min(p.maxHp - p.hp, item.heal ?? 0);
-    p.hp += heal;
     this.acc.itemsUsed.push(item.id);
+    const heal = this.healPlayer(item.heal ?? 0, "food");
     this.acc.dirty = true;
     if (this.bossFight) this.bossFight.items = true;
     if (this.fight) this.fight.items = true;
@@ -840,7 +910,15 @@ export class Engine {
   private gaugeSource(g: NonNullable<ActiveEffect["ultimate"]>["gauge"]) {
     const bf = this.bossFight;
     if (!bf) return 0;
-    return { boss_hits: bf.hits, boss_parries: bf.parries, boss_dodges: bf.dodges, boss_weapon_hits: bf.weaponHits }[g];
+    return {
+      boss_hits: bf.hits,
+      boss_parries: bf.parries,
+      boss_dodges: bf.dodges,
+      boss_weapon_hits: bf.weaponHits,
+      boss_mp_spent: bf.mp,
+      boss_healed: bf.healed,
+      boss_charges: bf.charges,
+    }[g];
   }
 
   /** Fire an ultimate at the boss: 50% of its HP at the first tier, a full kill above. */
@@ -863,6 +941,14 @@ export class Engine {
     const dmg = tier === 1 ? Math.min(Math.ceil(boss.maxHp * 0.5), Math.ceil(boss.hp)) : Math.ceil(boss.hp);
     this.text(p.x, p.y - PLAYER_H - 30, `${s.name.toUpperCase()}!`, "#ffd34d", 30);
     this.fxAdd("area", boss.x, boss.y - MONSTER_LOOKS[boss.id].body.h / 2, 160, 700, "#ffd34d");
+    if (tier === 3 && u.field) {
+      // the top tier also finishes every other monster on screen
+      for (const m of this.monsters) {
+        if (m === boss || m.state === "dead" || Math.abs(m.x - p.x) > SCREEN_REACH_X || Math.abs(m.y - p.y) > SCREEN_REACH_Y) continue;
+        this.fxAdd("burst", m.x, m.y - MONSTER_LOOKS[m.id].body.h / 2, 60, 600, "#ffd34d");
+        this.applyHit(m, { skillId: s.id, dmg: Math.ceil(m.hp), crit: true, miss: false, ult: 3 });
+      }
+    }
     this.applyHit(boss, { skillId: s.id, dmg, crit: true, miss: false, ult: tier as 1 | 2 | 3 });
   }
 
@@ -873,9 +959,27 @@ export class Engine {
     if (p.statuses.silence) return this.events.toast("You're silenced!");
     if (s.active.ultimate) return this.fireUltimate(s);
     const a = s.active;
-    if ((a.mp_cost ?? 0) > p.mp) return this.events.toast("Not enough MP.");
+    const cost = a.mp_cost ?? 0;
+    const bs = this.combat.passive.blood_sorcery;
+    // Blood Sorcery: at 0 MP, an attack skill is paid with HP instead
+    const blood = cost > p.mp && !!bs && p.mp < 1 && !!a.multiplier;
+    if (cost > p.mp && !blood) return this.events.toast("Not enough MP.");
     if (this.now < (p.skillReady[s.id] ?? 0) || this.now < p.globalReady) return;
-    p.mp -= a.mp_cost ?? 0;
+    const castId = ++this.castSeq;
+    if (blood) {
+      const hpCost = Math.ceil(p.maxHp * bs!.hp_per_mp * cost);
+      if (p.hp <= hpCost) return this.events.toast("Not enough HP to cast with blood.");
+      p.hp -= hpCost;
+      this.acc.bloodUses[s.id] = (this.acc.bloodUses[s.id] ?? 0) + 1;
+      this.text(p.x, p.y - PLAYER_H - 48, "BLOOD SORCERY", "#ff3b5c", 18);
+    } else {
+      p.mp -= cost;
+      if (cost > 0 && Math.round(p.mp) === 0) this.zeroCasts.add(castId);
+      if (cost > 0 && this.bossFight) {
+        this.bossFight.mp += cost;
+        this.acc.boss.mp += cost;
+      }
+    }
     if (a.hp_cost_pct) p.hp = Math.max(1, p.hp - Math.round(p.maxHp * a.hp_cost_pct));
     p.skillReady[s.id] = this.now + cooldownMs(s);
     p.globalReady = this.now + 600;
@@ -912,8 +1016,7 @@ export class Engine {
       }
     }
     if (a.heal_pct) {
-      const heal = Math.min(p.maxHp - p.hp, Math.round(p.maxHp * a.heal_pct));
-      p.hp += heal;
+      const heal = this.healPlayer(Math.round(p.maxHp * a.heal_pct), "skill");
       this.text(p.x, p.y - PLAYER_H - 4, `+${heal}`, "#5fd36a", 26);
       this.fxAdd("heal", p.x, p.y - PLAYER_H / 2, 50, 700, "#5fd36a");
     }
@@ -928,7 +1031,7 @@ export class Engine {
     const counter = this.now < p.counterUntil;
     chosen.forEach((m, j) => {
       for (let k = 0; k < spec.hits; k++) {
-        this.pendingHits.push({ at: this.now + 140 + k * 110, uid: m.uid, spec, skillId: s.id, counter: counter && j === 0 && k === 0 });
+        this.pendingHits.push({ at: this.now + 140 + k * 110, uid: m.uid, spec, skillId: s.id, counter: counter && j === 0 && k === 0, castId, blood });
       }
     });
     if (counter && chosen.length) p.counterUntil = 0;
@@ -962,6 +1065,14 @@ export class Engine {
       p.attackStart = now;
       p.attackUntil = now + Math.min(feel.interval - 40, 360);
       p.attackResolved = false;
+      // a lance attack after a long run is a charge; one in the air is a jump attack
+      p.chargeRun = this.weapon === "lance" && p.onGround ? p.runDist : 0;
+      p.runDist = 0;
+      p.airAttack = !p.onGround;
+      if (p.airAttack && this.combat.passive.sky_lance && !p.onLadder) {
+        p.diving = true;
+        p.vy = MAX_FALL;
+      }
       const dm = this.combat.passive.dead_mans_hand;
       p.nextAttackAt = now + (dm && p.hp / p.maxHp < dm.below ? feel.interval / dm.rate : feel.interval);
     }
@@ -975,7 +1086,7 @@ export class Engine {
       this.pendingHits = this.pendingHits.filter((h) => now < h.at);
       for (const h of due) {
         const m = this.monsters.find((x) => x.uid === h.uid);
-        if (m && m.state !== "dead") this.hitMonster(m, h.spec, h.skillId, h.counter);
+        if (m && m.state !== "dead") this.hitMonster(m, h.spec, h.skillId, h.counter, 1, { castId: h.castId, blood: h.blood });
       }
     }
     this.updateProjectiles();
@@ -1006,6 +1117,7 @@ export class Engine {
         fromPlayer: true,
         spec,
         counter,
+        castId: spec.element === "magic" ? ++this.castSeq : undefined,
       });
       return;
     }
@@ -1015,7 +1127,10 @@ export class Engine {
     // Swings at thin air don't count as attacks; only swings at a monster do.
     if (!target) return;
     const run = this.hitStreak;
-    this.hitMonster(target, spec, undefined, counter);
+    const share = this.weapon === "lance" ? Math.min(1, p.chargeRun / CHARGE_FULL) : 0;
+    const charge = share >= CHARGE_MIN_SHARE ? share : undefined;
+    if (charge) this.text(p.x, p.y - PLAYER_H - 30, share >= 1 ? "COMET CHARGE!" : "CHARGE!", "#ffb347", share >= 1 ? 22 : 18);
+    this.hitMonster(target, spec, undefined, counter, 1, { charge, air: this.weapon === "lance" && p.airAttack });
     // Hundred Cuts: a long run of hits also cuts the enemies next to the target, then everything on screen.
     const hc = this.combat.passive.hundred_cuts;
     if (!hc || run < hc.adjacent_at) return;
@@ -1038,12 +1153,15 @@ export class Engine {
   }
 
   /** A swing or skill hit you made: rolls it with your skills' bonuses, then lands it. */
-  private hitMonster(m: Monster, spec: AttackSpec, skillId: string | undefined, counter: boolean, extraMult = 1) {
+  private hitMonster(m: Monster, spec: AttackSpec, skillId: string | undefined, counter: boolean, extraMult = 1, opts: HitOpts = {}) {
     const p = this.player;
     const ps = this.combat.passive;
     const isBoss = !!MONSTERS[m.id].isBoss;
     const attacker = withDuelist(this.combat, this.foesOnYou() <= 1);
     const mods: HitMods = { mult: extraMult };
+    // Blood Sorcery and Comet Charge
+    if (opts.blood && ps.blood_sorcery) mods.mult! *= ps.blood_sorcery.mult;
+    if (opts.charge !== undefined && ps.comet_charge) mods.mult! *= 1 + (ps.comet_charge.max_mult - 1) * opts.charge;
     let execute = false;
     // Silent Finish: the first hit on a monster that hasn't noticed you
     const sf = ps.silent_finish;
@@ -1095,6 +1213,16 @@ export class Engine {
       hit.execute = true;
       this.text(p.x, p.y - PLAYER_H - 30, "BLADE READ!", "#7fe0ff", 24);
     }
+    if (opts.blood && ps.blood_sorcery) hit.blood = true;
+    if (opts.chain) hit.chain = true;
+    if (opts.charge !== undefined) hit.charge = opts.charge;
+    if (!r.miss) {
+      // what kind of blow this was, in case it's the killing one
+      m.lastCast = spec.element === "magic" ? opts.castId : undefined;
+      m.lastZeroMp = opts.castId !== undefined && this.zeroCasts.has(opts.castId);
+      m.lastCharge = opts.charge;
+      m.lastAir = !!opts.air;
+    }
     // combo and mark bookkeeping
     if (fists) {
       if (r.miss) this.combo = 0;
@@ -1120,9 +1248,32 @@ export class Engine {
       this.bossFight.weaponHits++;
       this.acc.boss.weaponHits++;
       this.acc.boss.dmg += dmg;
+      if (opts.charge !== undefined) {
+        this.bossFight.charges++;
+        this.acc.boss.charges++;
+      }
     }
     this.applyHit(m, hit, spec.status);
     if (r.miss) return;
+    // Soul Drain: a share of the damage comes back as HP, and any extra becomes a shield
+    const sd = ps.soul_drain;
+    if (sd && !p.dead) {
+      // fractions carry over, so small hits still drain over time
+      const raw = dmg * sd.pct + this.drainCarry;
+      const drain = Math.floor(raw);
+      this.drainCarry = raw - drain;
+      const over = drain - this.healPlayer(drain, "drain");
+      if (over > 0) p.shield = Math.min(Math.round(p.maxHp * sd.max_shield), p.shield + over);
+    }
+    // Chain Catastrophe: an enemy your spell kills explodes into the same spell
+    const cc = ps.chain_catastrophe;
+    if (cc && m.state === "dead" && spec.element === "magic") {
+      const cy = m.y - MONSTER_LOOKS[m.id].body.h / 2;
+      this.fxAdd("area", m.x, cy, cc.radius, 450, "#c792ff");
+      this.text(m.x, cy - 40, "CHAIN!", "#c792ff", 18);
+      const near = this.monsters.filter((x) => x.state !== "dead" && Math.abs(x.x - m.x) <= cc.radius && Math.abs(x.y - m.y) <= cc.radius);
+      for (const x of near) if (x.state !== "dead") this.hitMonster(x, spec, skillId, false, 1, { castId: opts.castId, chain: true });
+    }
     if (ps.armor_crusher) m.defDown = Math.min(ps.armor_crusher.max, m.defDown + ps.armor_crusher.per_hit);
     // Thousand Needles: crits stack bleeding
     const tn = ps.thousand_needles;
@@ -1176,8 +1327,65 @@ export class Engine {
 
   private ensureFight(): FightState {
     if (!this.fight)
-      this.fight = { start: this.now, maxFoes: 0, lastActive: this.now, kills: 0, items: false, firstShotAt: null, dodgeRun: 0, phantomCounted: false };
+      this.fight = {
+        start: this.now,
+        maxFoes: 0,
+        lastActive: this.now,
+        kills: 0,
+        items: false,
+        firstShotAt: null,
+        dodgeRun: 0,
+        phantomCounted: false,
+        stolen: [],
+        graceUsed: false,
+      };
     return this.fight;
+  }
+
+  /**
+   * Heal the player. Skill and food heals can trigger Grace Rebound; everything
+   * healed in a boss fight charges Judgment of Mercy. Returns the HP actually gained.
+   */
+  private healPlayer(amount: number, kind: "skill" | "food" | "regen" | "drain"): number {
+    const p = this.player;
+    if (p.dead || amount <= 0) return 0;
+    if (kind === "skill" || kind === "food") {
+      if (p.hp / p.maxHp < 0.05) this.acc.lowHpHeals++;
+      const gr = this.combat.passive.grace_rebound;
+      if (gr && p.hp / p.maxHp < gr.below) {
+        const f = this.ensureFight();
+        if (!f.graceUsed) {
+          f.graceUsed = true;
+          amount = Math.round(amount * gr.mult);
+          this.text(p.x, p.y - PLAYER_H - 40, "GRACE REBOUND!", "#fff3b0", 20);
+        }
+      }
+    }
+    const heal = Math.max(0, Math.min(p.maxHp - p.hp, amount));
+    p.hp += heal;
+    if (kind === "skill" || kind === "food") this.acc.healed += heal;
+    if (kind === "drain") this.acc.drained += heal;
+    if (this.bossFight && heal > 0) {
+      this.bossFight.healed += heal;
+      this.acc.boss.healed += heal;
+    }
+    if (heal > 0) this.acc.dirty = true;
+    return heal;
+  }
+
+  /** Sky Lance: the dive lands and hits everything nearby. */
+  private crash() {
+    const p = this.player;
+    const sl = this.combat.passive.sky_lance;
+    if (!sl || p.dead) return;
+    this.fxAdd("area", p.x, p.y - 10, sl.reach, 500, "#ffb347");
+    this.text(p.x, p.y - PLAYER_H - 30, "SKY LANCE!", "#ffb347", 22);
+    const spec = attackSpec(this.weapon, this.combat);
+    const near = this.monsters
+      .filter((m) => m.state !== "dead" && Math.abs(m.x - p.x) <= sl.reach + MONSTER_LOOKS[m.id].body.w / 2 && Math.abs(m.y - p.y) <= 120)
+      .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))
+      .slice(0, SKY_LANCE_TARGETS);
+    for (const m of near) if (m.state !== "dead") this.hitMonster(m, spec, "sky_lance", false, 1, { air: true });
   }
 
   /** A strike a passive skill makes on its own (Iron Riposte, Eye of the Storm). Doesn't count toward hits in a row. */
@@ -1239,7 +1447,19 @@ export class Engine {
     this.ensureFight();
     if (MONSTERS[m.id].isBoss) {
       if (!this.bossFight)
-        this.bossFight = { uid: m.uid, hits: 0, parries: 0, dodges: 0, weaponHits: 0, others: this.foesOnYou() > 1, items: false, gauges: {} };
+        this.bossFight = {
+          uid: m.uid,
+          hits: 0,
+          parries: 0,
+          dodges: 0,
+          weaponHits: 0,
+          mp: 0,
+          healed: 0,
+          charges: 0,
+          others: this.foesOnYou() > 1,
+          items: false,
+          gauges: {},
+        };
     } else if (this.bossFight) this.bossFight.others = true;
   }
 
@@ -1267,6 +1487,7 @@ export class Engine {
       this.acc.dirty = true;
     }
     this.fight = null;
+    this.player.shield = 0;
     this.stealthChain = 0;
     this.combo = 0;
     this.hitStreak = 0;
@@ -1308,11 +1529,8 @@ export class Engine {
     m.hp = 0;
     const f = m.fight ?? { start: this.now, direct: 0, indirect: 0, swings: 0, inSwamp: false };
     if (this.combat.passive.heal_on_win_pct && !p.dead) {
-      const heal = Math.min(p.maxHp - p.hp, Math.round(p.maxHp * this.combat.passive.heal_on_win_pct));
-      if (heal > 0) {
-        p.hp += heal;
-        this.text(p.x, p.y - PLAYER_H - 4, `+${heal}`, "#5fd36a", 24);
-      }
+      const heal = this.healPlayer(Math.round(p.maxHp * this.combat.passive.heal_on_win_pct), "regen");
+      if (heal > 0) this.text(p.x, p.y - PLAYER_H - 4, `+${heal}`, "#5fd36a", 24);
     }
     this.fxAdd("burst", m.x, m.y - MONSTER_LOOKS[m.id].body.h / 2, 50, 450, "#fff3b0");
     if (m.spawnIndex >= 0) this.spawnTimers.set(m.spawnIndex, this.now + RESPAWN_MS);
@@ -1327,6 +1545,10 @@ export class Engine {
     this.emit("kill", {
       duel,
       killSkill: m.lastSkill,
+      killCast: m.lastCast,
+      zeroMpKill: m.lastZeroMp || undefined,
+      chargeKill: m.lastCharge !== undefined && m.lastCharge >= 1 ? true : undefined,
+      jumpKill: m.lastAir || undefined,
       monsterId: m.id,
       directToTarget: f.direct,
       indirectToTarget: f.indirect,
@@ -1370,7 +1592,7 @@ export class Engine {
           const share = pr.range ? Math.min(1, (pr.range - pr.left) / pr.range) : 0;
           if (this.weapon === "bow" && share >= 0.8) this.acc.farHits++;
           const hl = this.combat.passive.hawk_line;
-          this.hitMonster(m, pr.spec!, pr.skillId, !!pr.counter, hl ? 1 + (hl.max_mult - 1) * share : 1);
+          this.hitMonster(m, pr.spec!, pr.skillId, !!pr.counter, hl ? 1 + (hl.max_mult - 1) * share : 1, { castId: pr.castId });
         }
       } else {
         const p = this.player;
@@ -1587,6 +1809,20 @@ export class Engine {
       this.fxAdd("parry", p.x + p.facing * 24, p.y - 46, 36, 380, "#7fe0ff");
       return;
     }
+    // Spell Thief: each enemy's first spell in a fight is absorbed and cast back
+    const thief = this.combat.passive.spell_thief;
+    if (thief && atk.element === "magic") {
+      const f = this.ensureFight();
+      if (!f.stolen.includes(m.uid)) {
+        f.stolen.push(m.uid);
+        acc.spellsAbsorbed++;
+        const raw = damageFormula(es.INT, atk.multiplier, this.combat.stats.INT, atk.piercing);
+        this.text(p.x, p.y - PLAYER_H - 30, "SPELL THIEF!", "#9fd4ff", 22);
+        this.fxAdd("burst", p.x, p.y - PLAYER_H / 2, 46, 450, "#9fd4ff");
+        this.applyHit(m, { skillId: "spell_thief", dmg: Math.max(1, Math.round(raw * thief.mult)), crit: false, miss: false });
+        return;
+      }
+    }
     const pAgi = p.statuses.slow ? Math.floor(this.combat.stats.AGI / 2) : this.combat.stats.AGI;
     const r = rollEnemyHit(this.rng, atk, { STR: es.STR, INT: es.INT, DEX: es.DEX }, { VIT: this.combat.stats.VIT, INT: this.combat.stats.INT, AGI: pAgi }, this.weapon, p.blocking);
     if (r.miss) {
@@ -1617,6 +1853,8 @@ export class Engine {
     }
     this.dodgeStreak = 0;
     // you got hit: runs of hits, parries, dodges and stealth kills start over
+    const unstoppable = this.charging();
+    if (!unstoppable) p.runDist = 0;
     this.hitStreak = 0;
     this.stealthChain = 0;
     if (this.fight) this.fight.dodgeRun = 0;
@@ -1634,8 +1872,9 @@ export class Engine {
     } else {
       this.hurtPlayer(r.dmg, "enemy", m);
       if (p.dead) return;
-      // knockback
-      if (!p.blocking) {
+      if (atk.element === "magic") acc.spellsTaken++;
+      // knockback (Iron Momentum: not while charging)
+      if (!p.blocking && !unstoppable) {
         const away = p.x >= m.x ? 1 : -1;
         p.vx = away * 300;
         p.vy = -320;
@@ -1669,8 +1908,18 @@ export class Engine {
   private hurtPlayer(dmg: number, source: "enemy" | "hazard" | "poison" | "burn", m?: Monster) {
     const p = this.player;
     if (dmg <= 0 || p.dead) return;
-    p.hp -= dmg;
     this.acc.taken[source] += dmg;
+    if (p.shield > 0) {
+      const soak = Math.min(p.shield, dmg);
+      p.shield -= soak;
+      dmg -= soak;
+      if (dmg <= 0) {
+        this.acc.dirty = true;
+        if (source === "enemy") p.invulnUntil = this.now + HURT_INVULN_MS;
+        return void this.text(p.x, p.y - PLAYER_H - 10, "SHIELD", "#fff3b0", 20);
+      }
+    }
+    p.hp -= dmg;
     this.acc.dirty = true;
     if (source === "enemy") {
       p.invulnUntil = this.now + HURT_INVULN_MS;
@@ -1686,9 +1935,15 @@ export class Engine {
     if (p.hp <= 0) this.die(m);
   }
 
+  /** Iron Momentum: mid-charge, you can't be stunned or knocked back. */
+  private charging() {
+    return !!this.combat.passive.iron_momentum && this.player.onGround && this.player.runDist >= CHARGE_FULL * CHARGE_MIN_SHARE;
+  }
+
   private addPlayerStatus(spec: { type: StatusType; chance: number; turns: number }) {
     const p = this.player;
     if (this.rng() >= spec.chance) return;
+    if (spec.type === "stun" && this.charging()) return void this.text(p.x, p.y - PLAYER_H - 34, "Unstoppable", "#ffb347", 16);
     if (this.combat.immunities.includes(spec.type)) return void this.text(p.x, p.y - PLAYER_H - 34, `Immune to ${spec.type}`, "#bfe3ff", 16);
     if (this.rng() < (this.combat.statusResist[spec.type] ?? 0)) return void this.text(p.x, p.y - PLAYER_H - 34, "Resisted", "#bfe3ff", 16);
     this.acc.statuses.push(spec.type);
@@ -1730,7 +1985,7 @@ export class Engine {
       if (this.combat.passive.mp_regen) p.mp = Math.min(p.maxMp, p.mp + this.combat.passive.mp_regen);
       const bc = this.combat.passive.breath_control;
       if (bc && this.fight) {
-        p.hp = Math.min(p.maxHp, p.hp + Math.ceil(p.maxHp * bc.hp_pct));
+        this.healPlayer(Math.ceil(p.maxHp * bc.hp_pct), "regen");
         p.mp = Math.min(p.maxMp, p.mp + bc.mp);
       }
     }
@@ -1790,6 +2045,12 @@ export class Engine {
       quickDraws: a.quickDraws,
       farHits: a.farHits,
       markedRuns: a.markedRuns,
+      spellsTaken: a.spellsTaken,
+      spellsAbsorbed: a.spellsAbsorbed,
+      lowHpHeals: a.lowHpHeals,
+      healed: a.healed,
+      drained: a.drained,
+      bloodUses: a.bloodUses,
       inSwamp: false,
       minHpPct: Math.min(a.minHpPct, Math.max(0, p.hp) / p.maxHp),
       hp: Math.max(0, Math.round(p.hp)),

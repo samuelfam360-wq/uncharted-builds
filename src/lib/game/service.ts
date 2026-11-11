@@ -18,10 +18,10 @@ import { eatOutsideBattle, maxCounter, resolveTurn, startBattle, summarize, type
 import { CLASSES, describeAppearance } from "./data/classes";
 import { ITEMS, MONSTERS, ZONES } from "./data/world";
 import { findUnlocks, type BattleSummary } from "./rules";
-import { MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport } from "./live";
+import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport, type ReportHit } from "./live";
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
-import { revealHints } from "./reveal";
-import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
+import { describeCondition, revealHints } from "./reveal";
+import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
 export interface UnlockNotice {
@@ -33,6 +33,7 @@ export interface UnlockNotice {
   excludes: string[];
   needsConfirmation: boolean;
   evolvedFrom: string | null;
+  earnedBy: string[]; // what you did to unlock it, in plain words
 }
 
 interface Loaded {
@@ -112,6 +113,7 @@ export async function checkUnlocks(
         excludes: skill.excludes.map((id) => defs.get(id)?.name ?? id),
         needsConfirmation,
         evolvedFrom: prev ? defs.get(prev.skillId)?.name ?? null : null,
+        earnedBy: describeCondition(skill.conditions, (id) => defs.get(id)?.name ?? id),
       });
     }
   }
@@ -159,6 +161,7 @@ export async function getState(store: GameStore, playerId: string) {
           mpCost: def?.effect.active?.mp_cost ?? 0,
           ultimate: !!def?.effect.active?.ultimate,
           needsWeapon: def && !worksWith(def, player.weapon) ? (def.effect.weapons ?? []).map((w) => WEAPONS[w].name) : null,
+          earnedBy: def ? describeCondition(def.conditions, (id) => defs.get(id)?.name ?? id) : [],
         };
       }),
     inventory: inventory.map((i) => ({ ...i, name: ITEMS[i.itemId]?.name ?? i.itemId, description: ITEMS[i.itemId]?.description ?? "", edible: ITEMS[i.itemId]?.edible ?? false })),
@@ -561,9 +564,21 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   let cloneHits = 0;
   let combo7Hits = 0;
   let stealthHits = 0;
+  let thiefHits = 0;
+  let chainHits = 0;
+  let skyHits = 0;
+  let chargeHits = 0;
+  let fullCharge = false;
   const stealthChain = counters.stealth_chain ?? 0;
   // Bonuses that can apply to any hit you make (the cap assumes the best case).
   const anyHitBonus = (ps.hawk_line?.max_mult ?? 1) * (ps.ringing_blow?.dmg_mult ?? 1);
+  /** Hits in a row can only grow one at a time (any drop is fine: you got hit). */
+  const trackStreak = (h: ReportHit) => {
+    const st = h.streak ?? 0;
+    if (st > streak + 1) throw new GameError("That run of hits doesn't add up");
+    streak = st;
+    bestStreak = Math.max(bestStreak, st + 1);
+  };
   const waves = new Map<number, number>();
   const ultFired: { id: string; tier: 1 | 2 | 3; dmg: number }[] = [];
   for (const h of report.hits) {
@@ -580,6 +595,28 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       const cap = Math.ceil(maxHit(specFor(), atk) * ps.phantom_legion.pct * anyHitBonus) + 1;
       if (!h.miss && h.dmg > cap) throw new GameError("A hit was bigger than possible");
       cloneHits++;
+    } else if (h.skillId === "spell_thief") {
+      // an absorbed enemy spell, cast back stronger
+      if (!ps.spell_thief) throw new GameError("That skill isn't equipped");
+      if (!h.miss && h.dmg > Math.ceil(maxBlow(zoneMonsters, "magic") * ps.spell_thief.mult) + 1) throw new GameError("A hit was bigger than possible");
+      thiefHits++;
+    } else if (h.skillId === "sky_lance") {
+      // the crash after a dive: your normal attack, on everything where you land
+      if (!ps.sky_lance) throw new GameError("That skill isn't equipped");
+      if (!h.miss) {
+        trackStreak(h);
+        if (h.dmg > Math.ceil(maxHit(specFor(), atk) * anyHitBonus) + 1) throw new GameError("A hit was bigger than possible");
+      }
+      skyHits++;
+    } else if (h.chain) {
+      // an enemy your spell killed explodes into the same spell
+      if (!ps.chain_catastrophe) throw new GameError("That skill isn't equipped");
+      const spec = specFor(h.skillId);
+      if (!h.miss) {
+        trackStreak(h);
+        if (h.dmg > Math.ceil(maxHit(spec, atk) * anyHitBonus) + 1) throw new GameError("A hit was bigger than possible");
+      }
+      chainHits++;
     } else if (h.skillId && procs[h.skillId] !== undefined) {
       if (!procs[h.skillId]) throw new GameError("That skill isn't equipped");
       const cap = Math.ceil(maxHit(specFor(h.skillId), atk)) + 1;
@@ -590,11 +627,8 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       plainHits++;
       const spec = specFor(h.skillId);
       if (h.miss) continue;
-      // Hits in a row can only grow one at a time (any drop is fine: you got hit).
       const st = h.streak ?? 0;
-      if (st > streak + 1) throw new GameError("That run of hits doesn't add up");
-      streak = st;
-      bestStreak = Math.max(bestStreak, st + 1);
+      trackStreak(h);
       if (h.execute) {
         if (!ps.blade_read) throw new GameError("That skill isn't equipped");
         executes++;
@@ -613,6 +647,17 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
           boost *= ps.seven_strikes.mult;
           combo7Hits++;
         }
+        if (h.blood) {
+          if (!ps.blood_sorcery || !h.skillId || !report.bloodUses[h.skillId]) throw new GameError("That skill isn't equipped");
+          boost *= ps.blood_sorcery.mult;
+        }
+        if (h.charge !== undefined) {
+          // a lance charge: needs a run-up of at least half a full run
+          if (player.weapon !== "lance" || h.charge < CHARGE_MIN_SHARE) throw new GameError("That charge doesn't add up");
+          if (ps.comet_charge) boost *= 1 + (ps.comet_charge.max_mult - 1) * h.charge;
+          chargeHits++;
+          if (h.charge >= 1) fullCharge = true;
+        }
         const cap = Math.ceil(maxHit(spec, atk) * (h.counter ? PARRY_COUNTER_MULT : 1) * boost) + 1;
         if (h.dmg > cap) throw new GameError("A hit was bigger than possible");
       }
@@ -628,6 +673,12 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   // Hundred Cuts swings can hit a crowd at once.
   const rate = MAX_HITS_PER_SEC * (ps.hundred_cuts ? 4 : 1) * (ps.dead_mans_hand?.rate ?? 1);
   if (cloneHits > report.dodged * 30) throw new GameError("More clone hits than dodges allow");
+  if (report.spellsAbsorbed > elapsedSec * 10 + 5 || report.spellsTaken > report.hitsTaken) throw new GameError("Too many spells for the time that passed");
+  if (thiefHits > report.spellsAbsorbed) throw new GameError("Cast back more spells than you absorbed");
+  if (skyHits > SKY_LANCE_TARGETS * (elapsedSec / 0.6 + 1) || chargeHits > elapsedSec / 0.7 + 2) throw new GameError("Too many hits for the time that passed");
+  // Chain Catastrophe: each spell kill can set off a limited number of explosions (they may land in the next report).
+  const chainBank = counters.chain_bank ?? 0;
+  if (chainHits > chainBank) throw new GameError("More explosions than spell kills allow");
   if (ps.seven_strikes && combo7Hits > Math.floor(landedCount / ps.seven_strikes.every) + 1) throw new GameError("Too many combo finishers");
   // Silent Finish: a stealth kill grows the chain; a stealth hit that doesn't kill, or getting hit, ends it.
   const stealthKill = report.type === "kill" && report.hitsOnTarget === 1 && stealthHits > 0;
@@ -654,7 +705,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
 
   // ----- the boss fight and its ultimates -----
   const bt = report.boss;
-  if (bt.hits > report.hitsTaken || bt.parries > report.parries || bt.dodges > report.dodged || bt.weaponHits > landedCount || bt.dmg > landed)
+  if (bt.hits > report.hitsTaken || bt.parries > report.parries || bt.dodges > report.dodged || bt.weaponHits > landedCount || bt.dmg > landed || bt.charges > chargeHits)
     throw new GameError("Boss fight counts don't add up");
   if (bt.parryDmg > bt.parries * (maxBossBlow(zoneMonsters) + 1)) throw new GameError("Parried more damage than possible");
   const bf = {
@@ -664,6 +715,9 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     dodges: (counters.bf_dodges ?? 0) + bt.dodges,
     weaponHits: (counters.bf_weapon_hits ?? 0) + bt.weaponHits,
     dmg: (counters.bf_dmg ?? 0) + bt.dmg,
+    mp: (counters.bf_mp ?? 0) + bt.mp,
+    healed: (counters.bf_healed ?? 0) + bt.healed,
+    charges: (counters.bf_charges ?? 0) + bt.charges,
   };
   const weaponMastery = WEAPON_MASTERY[player.weapon];
   if (bf.hits) maxCounter(deltas, "boss_fight_hits_best", bf.hits);
@@ -671,10 +725,13 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   if (bf.weaponHits) maxCounter(deltas, `boss_fight_hits_${weaponMastery}_best`, bf.weaponHits);
   if (bf.dmg) maxCounter(deltas, `boss_fight_${weaponMastery}_dmg_best`, bf.dmg);
   if (bf.parryDmg) maxCounter(deltas, "boss_fight_parry_dmg_best", bf.parryDmg);
+  if (bf.mp) maxCounter(deltas, "boss_fight_mp_spent_best", bf.mp);
+  if (bf.healed) maxCounter(deltas, "boss_fight_healed_best", bf.healed);
+  if (bf.charges) maxCounter(deltas, "boss_fight_charge_hits_best", bf.charges);
   let ultExpBonus = 1;
   for (const u of ultFired) {
     const spec = active.get(u.id)!.effect.active!.ultimate!;
-    const source = { boss_hits: bf.hits, boss_parries: bf.parries, boss_dodges: bf.dodges, boss_weapon_hits: bf.weaponHits }[spec.gauge];
+    const source = gaugeValue(spec.gauge, bf);
     const base = deltas[`bf_base_${u.id}`]?.value ?? counters[`bf_base_${u.id}`] ?? 0;
     if (bossMaxHp <= 0 || source - base < spec.tiers[u.tier - 1]) throw new GameError("That ultimate isn't charged yet");
     if (u.tier === 1) {
@@ -693,17 +750,32 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     deltas.bf_dodges = { op: "set", value: bf.dodges };
     deltas.bf_weapon_hits = { op: "set", value: bf.weaponHits };
     deltas.bf_dmg = { op: "set", value: bf.dmg };
+    deltas.bf_mp = { op: "set", value: bf.mp };
+    deltas.bf_healed = { op: "set", value: bf.healed };
+    deltas.bf_charges = { op: "set", value: bf.charges };
   }
 
   // ----- skills and MP -----
   let mpSpent = 0;
   let skillHeal = 0;
+  let healCasts = 0;
+  let biggestHeal = 0;
+  for (const [id, n] of Object.entries(report.bloodUses)) {
+    const a = active.get(id)?.effect.active;
+    if (!ps.blood_sorcery || !a?.mp_cost || n > (report.skillUses[id] ?? 0)) throw new GameError("That skill isn't equipped");
+    mpSpent -= a.mp_cost * n; // paid with HP instead
+  }
   for (const [id, n] of Object.entries(report.skillUses)) {
     const def = active.get(id);
     if (!def?.effect.active) throw new GameError("That skill isn't equipped");
     const a = def.effect.active;
     mpSpent += (a.mp_cost ?? 0) * n;
-    if (a.heal_pct) skillHeal += Math.round(d.maxHp * a.heal_pct) * n;
+    if (a.heal_pct) {
+      const one = Math.round(d.maxHp * a.heal_pct);
+      skillHeal += one * n;
+      healCasts += n;
+      biggestHeal = Math.max(biggestHeal, one);
+    }
     inc(deltas, "skills_used", n);
     inc(deltas, `skill_used_${id}`, n);
     if (a.cooldown_s) {
@@ -718,6 +790,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   const regen = (d.passive.mp_regen + (breath?.mp ?? 0)) * ticks;
   const breathHeal = breath ? Math.ceil(d.maxHp * breath.hp_pct) * ticks : 0;
   if (mpSpent > player.currentMp + regen + 1) throw new GameError("Not enough MP for those skills");
+  if (bt.mp > mpSpent) throw new GameError("Boss fight counts don't add up");
 
   // ----- items eaten -----
   const inv = new Map((await store.getInventory(playerId)).map((i) => [i.itemId, i.qty]));
@@ -728,7 +801,11 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     if (!item || have < 1) throw new GameError("You don't have that item");
     inv.set(id, have - 1);
     inc(deltas, "items_eaten");
-    if (item.edible) itemHeal += item.heal ?? 0;
+    if (item.edible) {
+      itemHeal += item.heal ?? 0;
+      healCasts++;
+      biggestHeal = Math.max(biggestHeal, item.heal ?? 0);
+    }
     else {
       inc(deltas, "inedible_eaten");
       inc(deltas, `ate_${id}`);
@@ -756,6 +833,15 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   inc(deltas, "clean_fights", report.cleanFights);
   inc(deltas, "phantom_fights", report.phantomFights);
   inc(deltas, "stuns_dealt", report.stunsDealt);
+  inc(deltas, "spells_survived", report.spellsTaken + report.spellsAbsorbed);
+  inc(deltas, "low_hp_heals", report.lowHpHeals);
+  if (player.weapon === "lance") inc(deltas, "charges_done", chargeHits);
+  // which kind of blow finished the monster (spells feed Chain Catastrophe and its unlocks)
+  const killDef = report.type === "kill" && report.killSkill ? active.get(report.killSkill) : undefined;
+  const killEl = killDef?.effect.active?.element ?? WEAPONS[player.weapon].element;
+  const spellKill = report.type === "kill" && killEl === "magic" && (!report.killSkill || !!killDef);
+  const chainBonus = spellKill && ps.chain_catastrophe ? CHAIN_PER_KILL : 0;
+  deltas.chain_bank = { op: "set", value: report.type === "death" ? 0 : Math.min(CHAIN_PER_KILL * 10, chainBank - chainHits + chainBonus) };
   inc(deltas, `hits_${player.weapon}`, landedCount);
   if (player.weapon === "daggers") inc(deltas, "crits_daggers", crits);
   if (WEAPON_MASTERY[player.weapon] === "fists") inc(deltas, "combos_7", report.combos7);
@@ -783,7 +869,15 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
 
   // ----- HP and MP: never more than the server allows -----
   const winHeal = report.type === "kill" ? Math.round(d.maxHp * d.passive.heal_on_win_pct) : 0;
-  const hpCeiling = Math.min(d.maxHp, player.currentHp + itemHeal + skillHeal + winHeal + breathHeal);
+  // Grace Rebound: the first heal below 10% HP in each fight is bigger
+  const gr = ps.grace_rebound;
+  const graceHeal = gr ? Math.ceil(biggestHeal * (gr.mult - 1)) * Math.min(healCasts, Math.ceil(fights)) : 0;
+  if (report.lowHpHeals > healCasts) throw new GameError("More heals than you made");
+  // Soul Drain: a share of the damage you deal comes back as HP
+  if (report.drained > (ps.soul_drain ? Math.ceil(landed * ps.soul_drain.pct) + 1 : 0)) throw new GameError("Drained more HP than possible");
+  const allHeal = itemHeal + skillHeal + graceHeal + winHeal + breathHeal + report.drained;
+  if (bt.healed > allHeal + 1) throw new GameError("Boss fight counts don't add up");
+  const hpCeiling = Math.min(d.maxHp, player.currentHp + allHeal);
   player.currentHp = report.type === "death" ? 0 : Math.max(0, Math.min(report.hp, hpCeiling));
   player.currentMp = Math.max(0, Math.min(report.mp, d.maxMp, player.currentMp - mpSpent + regen));
   if (itemHeal > 0 || skillHeal > 0) inc(deltas, "hp_healed", Math.max(0, Math.min(itemHeal + skillHeal + winHeal, d.maxHp)));
@@ -831,6 +925,20 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     if (report.hitsOnTarget === 1) inc(deltas, "one_hit_kills");
     if (report.killSkill && active.has(report.killSkill) && report.hits.some((h) => h.skillId === report.killSkill && !h.miss)) inc(deltas, `skill_kills_${report.killSkill}`);
     if (player.currentHp / d.maxHp < 0.1) inc(deltas, "low_hp_wins");
+    if (report.zeroMpKill && killDef?.effect.active?.mp_cost && killEl === "magic" && report.hits.some((h) => h.skillId === report.killSkill && !h.miss)) inc(deltas, "zero_mp_kills");
+    if (spellKill && report.killCast !== undefined) {
+      // kills by one spell: the same cast, close together in time
+      const same = counters.cast_id === report.killCast && now - (counters.cast_t ?? 0) <= 5000;
+      const n = same ? (counters.cast_kills ?? 0) + 1 : 1;
+      deltas.cast_id = { op: "set", value: report.killCast };
+      deltas.cast_t = { op: "set", value: now };
+      deltas.cast_kills = { op: "set", value: n };
+      if (n === 10) inc(deltas, "spell_multikills_10");
+    }
+    if (player.weapon === "lance") {
+      if (report.chargeKill && fullCharge) inc(deltas, "max_charge_kills");
+      if (report.jumpKill && landedCount > 0) inc(deltas, "jump_kills");
+    }
 
     const drops = m.drops.filter((dr) => rng() < dr.chance).map((dr) => dr.itemId);
     const exp = m.isBoss ? Math.round(m.exp * ultExpBonus) : m.exp;
@@ -948,6 +1056,36 @@ function zoneMonsterIds(zoneId: string): string[] {
 }
 
 /** The hardest blow any boss here could land, before defense (bounds parried damage). */
+/** Chain Catastrophe: explosions one spell kill may set off. */
+const CHAIN_PER_KILL = 30;
+/** Sky Lance: most monsters one crash can hit. */
+const SKY_LANCE_TARGETS = 10;
+
+/** The hardest single blow any monster here can deal (of one element, if given). */
+function maxBlow(monsters: (typeof MONSTERS)[string][], element?: "physical" | "magic"): number {
+  let max = 0;
+  for (const m of monsters) {
+    for (const a of m.attacks) {
+      if (element && a.element !== element) continue;
+      max = Math.max(max, Math.ceil((a.element === "magic" ? m.stats.INT : m.stats.STR) * a.multiplier + (a.piercing ?? 0)));
+    }
+  }
+  return max;
+}
+
+/** How full an ultimate's gauge source is in this boss fight. */
+function gaugeValue(g: GaugeSource, bf: { hits: number; parries: number; dodges: number; weaponHits: number; mp: number; healed: number; charges: number }) {
+  return {
+    boss_hits: bf.hits,
+    boss_parries: bf.parries,
+    boss_dodges: bf.dodges,
+    boss_weapon_hits: bf.weaponHits,
+    boss_mp_spent: bf.mp,
+    boss_healed: bf.healed,
+    boss_charges: bf.charges,
+  }[g];
+}
+
 function maxBossBlow(monsters: (typeof MONSTERS)[string][]): number {
   let max = 0;
   for (const m of monsters) {
@@ -959,7 +1097,7 @@ function maxBossBlow(monsters: (typeof MONSTERS)[string][]): number {
 
 /** A boss fight is over: clear its tallies and every ultimate gauge. */
 function resetBossFight(deltas: CounterDeltas, defs: Iterable<SkillDefinition>) {
-  for (const k of ["bf_hits", "bf_parries", "bf_parry_dmg", "bf_dodges", "bf_weapon_hits", "bf_dmg"]) deltas[k] = { op: "set", value: 0 };
+  for (const k of ["bf_hits", "bf_parries", "bf_parry_dmg", "bf_dodges", "bf_weapon_hits", "bf_dmg", "bf_mp", "bf_healed", "bf_charges"]) deltas[k] = { op: "set", value: 0 };
   for (const d of defs) {
     if (!d.effect.active?.ultimate) continue;
     deltas[`bf_base_${d.id}`] = { op: "set", value: 0 };

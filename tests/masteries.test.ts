@@ -168,12 +168,12 @@ describe("hidden skill unlocks from live fights", () => {
     const { store, p } = await newPlayer("tanker", { VIT: 3, HP: 2 });
     const t = Date.now();
     await game.liveEnter(store, p.id, "hollow_of_the_mire", t - 60_000);
-    await game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 30, boss: { hits: 30, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t - 30_000);
-    const r = await game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 20, boss: { hits: 20, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t);
+    await game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 30, boss: { hits: 30, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0 } }), seeded(), t - 30_000);
+    const r = await game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 20, boss: { hits: 20, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0 } }), seeded(), t);
     expect(r.unlocks.map((u) => u.id)).toContain("retribution");
     // more boss hits than hits taken is refused
     await expect(
-      game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 1, boss: { hits: 2, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t + 5000),
+      game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 1, boss: { hits: 2, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0 } }), seeded(), t + 5000),
     ).rejects.toThrow("don't add up");
   });
 
@@ -182,10 +182,10 @@ describe("hidden skill unlocks from live fights", () => {
     const t = Date.now();
     await game.liveEnter(store, p.id, "hollow_of_the_mire", t - 60_000);
     await expect(
-      game.liveReport(store, p.id, blank("hollow_of_the_mire", { parries: 1, blocks: 1, boss: { hits: 0, parries: 1, parryDmg: 5000, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t),
+      game.liveReport(store, p.id, blank("hollow_of_the_mire", { parries: 1, blocks: 1, boss: { hits: 0, parries: 1, parryDmg: 5000, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0 } }), seeded(), t),
     ).rejects.toThrow("Parried more damage");
     await expect(
-      game.liveReport(store, p.id, blank("hollow_of_the_mire", { parries: 1, blocks: 1, boss: { hits: 0, parries: 1, parryDmg: 30, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t),
+      game.liveReport(store, p.id, blank("hollow_of_the_mire", { parries: 1, blocks: 1, boss: { hits: 0, parries: 1, parryDmg: 30, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0 } }), seeded(), t),
     ).resolves.toBeTruthy();
     expect((await store.getCounters(p.id)).boss_fight_parry_dmg_best).toBe(30);
   });
@@ -279,7 +279,7 @@ describe("hidden skill effects: the server's checks", () => {
     await game.liveEnter(store, p.id, "hollow_of_the_mire", t - 600_000);
     await store.applyCounters(p.id, { run_hollow_of_the_mire_room: { op: "set", value: 3 } });
     const ult = (tier: 1 | 2 | 3, dmg: number) => hit(dmg, { skillId: "retribution", ult: tier, crit: true });
-    const bossHits = (n: number) => ({ hitsTaken: n, boss: { hits: n, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } });
+    const bossHits = (n: number) => ({ hitsTaken: n, boss: { hits: n, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0 } });
 
     await expect(game.liveReport(store, p.id, blank("hollow_of_the_mire", { ...bossHits(49), hits: [ult(1, 210)] }), seeded(), t - 500_000)).rejects.toThrow(
       "isn't charged",

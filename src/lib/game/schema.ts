@@ -43,7 +43,11 @@ const activeSchema: z.ZodType<ActiveEffect> = z
     cooldown_s: z.number().min(0).optional(),
     shadow_walk: z.object({ invisible_s: z.number().min(0) }).strict().optional(),
     ultimate: z
-      .object({ gauge: z.enum(["boss_hits", "boss_parries", "boss_dodges", "boss_weapon_hits"]), tiers: z.tuple([z.number().int().min(1), z.number().int().min(1), z.number().int().min(1)]) })
+      .object({
+        gauge: z.enum(["boss_hits", "boss_parries", "boss_dodges", "boss_weapon_hits", "boss_mp_spent", "boss_healed", "boss_charges"]),
+        tiers: z.tuple([z.number().int().min(1), z.number().int().min(1), z.number().int().min(1)]),
+        field: z.boolean().optional(),
+      })
       .strict()
       .optional(),
   })
@@ -90,6 +94,14 @@ export const effectSchema = z
         dead_mans_hand: z.object({ below: z.number().min(0).max(1), rate: z.number().min(1) }).strict().optional(),
         hawk_line: z.object({ range: z.number().min(1), max_mult: z.number().min(1) }).strict().optional(),
         marked_prey: z.boolean().optional(),
+        spell_thief: z.object({ mult: z.number().min(1) }).strict().optional(),
+        chain_catastrophe: z.object({ radius: z.number().min(0) }).strict().optional(),
+        blood_sorcery: z.object({ hp_per_mp: z.number().min(0), mult: z.number().min(1) }).strict().optional(),
+        grace_rebound: z.object({ below: z.number().min(0).max(1), mult: z.number().min(1) }).strict().optional(),
+        soul_drain: z.object({ pct: z.number().min(0).max(1), max_shield: z.number().min(0) }).strict().optional(),
+        comet_charge: z.object({ max_mult: z.number().min(1) }).strict().optional(),
+        iron_momentum: z.boolean().optional(),
+        sky_lance: z.object({ reach: z.number().min(0) }).strict().optional(),
       })
       .strict()
       .optional(),
