@@ -32,6 +32,12 @@ const blank = (zoneId: string, extra: Partial<LiveReport> = {}): LiveReport => (
   minHpPct: 1,
   hp: 0,
   mp: 0,
+  hitsTaken: 0,
+  hitStreak: 0,
+  guardStored: 0,
+  boss: { hits: 0, parries: 0, parryDmg: 0 },
+  bossEnd: false,
+  stormFights: 0,
   ...extra,
 });
 

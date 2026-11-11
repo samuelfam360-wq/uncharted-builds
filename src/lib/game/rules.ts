@@ -45,7 +45,14 @@ export function evaluate(cond: Condition, ctx: RuleContext): boolean {
   if ("battle" in cond) return ctx.battle ? compare(ctx.battle[cond.battle], cond.op, cond.value) : false;
   if ("skill" in cond) return ctx.ownedSkills.has(cond.skill) === (cond.owned ?? true);
   if ("zone" in cond) return ctx.zone === cond.zone;
+  if ("stat_spread" in cond) return compare(statSpread(ctx.stats), cond.op, cond.value);
   return false;
+}
+
+/** Highest allocated stat minus the lowest. */
+export function statSpread(stats: Stats): number {
+  const v = Object.values(stats);
+  return Math.max(...v) - Math.min(...v);
 }
 
 export interface UnlockCandidate {

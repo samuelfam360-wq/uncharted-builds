@@ -92,14 +92,32 @@ export interface HitRoll {
   dmg: number;
 }
 
+/** Changes a skill can make to one hit (Blade Read, Hundred Cuts). */
+export interface HitMods {
+  sure?: boolean; // can't miss
+  crit?: boolean; // always crits
+  ignoreDef?: boolean;
+  mult?: number; // extra damage multiplier
+}
+
 /** One swing (or one hit of a multi-hit skill) against one monster. Same rules as the turn-based fights. */
-export function rollHit(rng: Rng, spec: AttackSpec, a: Attacker, target: Defender, hpPct: number): HitRoll {
-  if (!spec.area && rng() >= hitChance(a.stats.DEX, target.AGI, spec.hitBonus)) return { miss: true, crit: false, dmg: 0 };
-  const crit = rng() < critChance(a.stats.DEX, spec.critBonus);
-  const def = spec.element === "magic" ? target.INT : target.VIT;
-  const dmg = damageFormula(attackPower(spec, a, hpPct), spec.multiplier * (crit ? 1.5 : 1), def, spec.piercing);
+export function rollHit(rng: Rng, spec: AttackSpec, a: Attacker, target: Defender, hpPct: number, mods: HitMods = {}): HitRoll {
+  if (!spec.area && !mods.sure && rng() >= hitChance(a.stats.DEX, target.AGI, spec.hitBonus)) return { miss: true, crit: false, dmg: 0 };
+  const crit = mods.crit || rng() < critChance(a.stats.DEX, spec.critBonus);
+  const def = mods.ignoreDef ? 0 : spec.element === "magic" ? target.INT : target.VIT;
+  const dmg = damageFormula(attackPower(spec, a, hpPct), spec.multiplier * (crit ? 1.5 : 1) * (mods.mult ?? 1), def, spec.piercing);
   return { miss: false, crit, dmg };
 }
+
+/** The stats an attacker fights with right now (Duelist's Oath when only one enemy is fighting). */
+export function withDuelist<T extends Attacker & { passive: { duelist?: { stat: StatKey; mult: number } } }>(a: T, oneOnOne: boolean): T {
+  const d = a.passive.duelist;
+  if (!d || !oneOnOne) return a;
+  return { ...a, stats: { ...a.stats, [d.stat]: Math.floor((a.stats[d.stat] ?? 0) * d.mult) } };
+}
+
+/** Hundred Cuts: damage multiplier for a hit that comes after `streak` hits in a row. */
+export const streakMult = (streak: number, perHit: number) => 1 + perHit * Math.max(0, streak);
 
 /** The biggest single hit this attack can ever do (a crit at low HP against no defense). */
 export function maxHit(spec: AttackSpec, a: Attacker): number {
@@ -135,6 +153,8 @@ export const PARRY_WINDOW_MS = 220;
 /** A parried monster is stunned this long and takes a stronger counter. */
 export const PARRY_STUN_MS = 1400;
 export const PARRY_COUNTER_MULT = 1.5;
+/** A boss finished by an ultimate's top tier gives this much EXP (solo; parties come later). */
+export const ULT_EXP_BONUS = 1.2;
 
 // ---------- What the browser sends ----------
 
@@ -144,6 +164,17 @@ export interface ReportHit {
   crit: boolean;
   miss: boolean;
   counter?: boolean; // the counter-attack after a parry (x1.5)
+  streak?: number; // landed hits in a row before this one, without being hit
+  execute?: boolean; // Blade Read's one-shot on a monster that isn't a boss
+  wave?: number; // Vengeance Vault: hits of one shockwave share a number
+  ult?: 1 | 2 | 3; // ultimate fired at this tier
+}
+
+/** Counts for the boss fight in progress, since the last report. */
+export interface BossTally {
+  hits: number; // boss attacks survived
+  parries: number; // boss attacks parried
+  parryDmg: number; // damage those parries stopped
 }
 
 export interface LiveReport {
@@ -174,6 +205,13 @@ export interface LiveReport {
   minHpPct: number;
   hp: number;
   mp: number;
+  hitsTaken: number; // enemy attacks that landed on you
+  hitStreak: number; // landed hits in a row right now
+  guardStored: number; // damage blocked while guarding (Vengeance Vault)
+  boss: BossTally;
+  bossEnd: boolean; // the boss fight ended (boss beaten, you fell, or you got away)
+  duel?: boolean; // kill: the whole fight was one-on-one with no items
+  stormFights: number; // fights survived with 10+ enemies on you at once
 }
 
 const STATUS_SET = new Set<string>(["poison", "paralysis", "burn", "freeze", "silence", "slow", "stun"]);
@@ -185,6 +223,7 @@ export function cleanReport(body: unknown): LiveReport {
   const type = b.type === "kill" || b.type === "death" ? b.type : "sync";
   const hits = Array.isArray(b.hits) ? b.hits.slice(0, 5000) : [];
   const taken = (b.taken && typeof b.taken === "object" ? b.taken : {}) as Record<string, unknown>;
+  const boss = (b.boss && typeof b.boss === "object" ? b.boss : {}) as Record<string, unknown>;
   const skillUses: Record<string, number> = {};
   if (b.skillUses && typeof b.skillUses === "object") {
     for (const [k, v] of Object.entries(b.skillUses as Record<string, unknown>).slice(0, 50)) {
@@ -204,6 +243,10 @@ export function cleanReport(body: unknown): LiveReport {
         crit: o.crit === true,
         miss: o.miss === true,
         counter: o.counter === true,
+        streak: o.streak === undefined ? undefined : num(o.streak, 1e6),
+        execute: o.execute === true,
+        wave: o.wave === undefined ? undefined : num(o.wave, 1e9),
+        ult: o.ult === 1 || o.ult === 2 || o.ult === 3 ? o.ult : undefined,
       };
     }),
     directToTarget: num(b.directToTarget),
@@ -226,5 +269,12 @@ export function cleanReport(body: unknown): LiveReport {
     minHpPct: typeof b.minHpPct === "number" && Number.isFinite(b.minHpPct) ? Math.max(0, Math.min(1, b.minHpPct)) : 1,
     hp: num(b.hp),
     mp: num(b.mp),
+    hitsTaken: num(b.hitsTaken, 100000),
+    hitStreak: num(b.hitStreak, 1e6),
+    guardStored: num(b.guardStored),
+    boss: { hits: num(boss.hits, 100000), parries: num(boss.parries, 100000), parryDmg: num(boss.parryDmg) },
+    bossEnd: b.bossEnd === true,
+    duel: b.duel === true,
+    stormFights: num(b.stormFights, 1000),
   };
 }

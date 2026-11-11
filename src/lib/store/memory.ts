@@ -1,5 +1,5 @@
 import type { BattleState } from "../game/combat";
-import { STARTER_SKILLS } from "../game/data/skills";
+import { ALL_SKILLS } from "../game/data/all-skills";
 import { UNIQUE_ITEMS } from "../game/data/world";
 import type { Counters, InventoryItem, Player, PlayerSkill, SkillDefinition, UniqueItem, UnlockLogEntry } from "../game/types";
 import type { GameStore, GrantOptions } from "./types";
@@ -13,7 +13,7 @@ export class MemoryStore implements GameStore {
   readonly kind = "memory" as const;
   players = new Map<string, Player>();
   counters = new Map<string, Counters>();
-  defs = new Map<string, SkillDefinition>(STARTER_SKILLS.map((d) => [d.id, structuredClone(d)]));
+  defs = new Map<string, SkillDefinition>(ALL_SKILLS.map((d) => [d.id, structuredClone(d)]));
   skills = new Map<string, PlayerSkill[]>();
   inventory = new Map<string, Map<string, number>>();
   battles = new Map<string, BattleState>();

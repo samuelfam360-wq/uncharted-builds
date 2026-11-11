@@ -133,12 +133,60 @@ export default function MenuPanels({
                 </button>
               </div>
               <p className="mt-1 text-xs text-muted">
-                <span className="uppercase">{s.kind}</span> · {s.description}
+                <span className="uppercase">{s.ultimate ? "ultimate" : s.kind}</span> · {s.description}
               </p>
+              {s.needsWeapon && <p className="mt-1 text-xs text-blood">Asleep: needs {s.needsWeapon.join(" or ")} in hand.</p>}
             </li>
           ))}
         </ul>
       )}
+    </section>
+
+    {state.hints.length > 0 && (
+      <section className="panel border-gold/40">
+        <h3 className="title text-lg text-gold">Something stirs…</h3>
+        <p className="mt-1 text-xs text-muted">You&apos;re close to a hidden skill. Its name stays a secret until you earn it.</p>
+        <ul className="mt-2 space-y-2">
+          {state.hints.map((h, i) => (
+            <li key={i} className="rounded-lg bg-panel-2 p-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold tracking-widest text-gold">??????</span>
+                <span className="ml-auto text-xs text-muted">{Math.floor(h.pct * 100)}%</span>
+              </div>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {h.left.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    <section className="panel">
+      <h3 className="title text-lg">Masteries</h3>
+      <p className="mt-1 text-xs text-muted">Each weapon grows as you use it. Your class&apos;s own mastery grows 20% faster.</p>
+      <ul className="mt-2 grid grid-cols-2 gap-2">
+        {state.masteries.map((m) => {
+          const inHand = m.usedBy.includes(player.weapon);
+          return (
+            <li key={m.id} className={`rounded-lg bg-panel-2 p-2 ${inHand ? "ring-1 ring-gold/60" : ""}`}>
+              <div className="flex items-baseline justify-between gap-1 text-sm">
+                <span className="font-semibold">
+                  {m.name}
+                  {m.classBonus && <span className="ml-1 text-[10px] text-gold" title="Your class's mastery: grows 20% faster">+20%</span>}
+                </span>
+                <span className="text-xs text-muted">Lv {m.level}</span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded bg-black/40">
+                <div className="h-full bg-gold" style={{ width: `${m.next ? Math.min(100, (m.xp / m.next) * 100) : 100}%` }} />
+              </div>
+              <div className="mt-0.5 text-[10px] text-muted">{m.id === "crafting" ? "Grows by crafting (coming later)" : m.next ? `${m.xp}/${m.next}` : "Max level"}</div>
+            </li>
+          );
+        })}
+      </ul>
     </section>
 
     {state.uniqueItem && (

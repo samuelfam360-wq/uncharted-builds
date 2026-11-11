@@ -18,6 +18,8 @@ export interface SkillButton {
   ready: boolean;
   cdPct: number; // 0..1 of the cooldown left
   enoughMp: boolean;
+  /** Ultimates: the gauge so far, and whether it can fire now. */
+  gauge?: { value: number; charged: boolean };
 }
 
 export default function TouchControls({
@@ -156,13 +158,14 @@ export default function TouchControls({
               key={i}
               aria-label={s.name}
               title={s.name}
-              className={`${round} h-14 w-14 overflow-hidden bg-[#7a52c7] text-[11px] leading-tight ${!s.enoughMp ? "opacity-50" : ""}`}
+              className={`${round} h-14 w-14 overflow-hidden text-[11px] leading-tight ${s.gauge ? (s.gauge.charged ? "bg-[#c98a12] ring-2 ring-[#ffd34d]" : "bg-[#5a4a2a]") : "bg-[#7a52c7]"} ${!s.enoughMp ? "opacity-50" : ""}`}
               style={pos}
               {...tap(() => press(`skill${i}` as Press))}
             >
               <span className="relative z-10 px-1 text-center">{s.short}</span>
               {s.cdPct > 0 && <span className="absolute inset-x-0 bottom-0 bg-black/55" style={{ height: `${s.cdPct * 100}%` }} />}
               <span className="absolute right-1 top-0 z-10 text-[9px] text-white/80">{i + 1}</span>
+              {s.gauge && <span className="absolute inset-x-0 bottom-0.5 z-10 text-center text-[10px] font-bold text-[#ffe9a8]">{s.gauge.value}</span>}
             </button>
           );
         })}

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { STAT_KEYS, STATUS_TYPES, type Condition, type SkillDefinition } from "./types";
+import { STAT_KEYS, STATUS_TYPES, WEAPON_TYPES, type ActiveEffect, type Condition, type SkillDefinition } from "./types";
 
 // Validates skill definitions edited on the admin page, so a typo can't break the game.
 
@@ -18,14 +18,38 @@ export const conditionSchema: z.ZodType<Condition> = z.lazy(() =>
     z.object({ battle: z.string().min(1), op, value: z.union([z.number(), z.string(), z.boolean()]) }).strict(),
     z.object({ skill: z.string().min(1), owned: z.boolean().optional() }).strict(),
     z.object({ zone: z.string().min(1) }).strict(),
+    z.object({ stat_spread: z.literal(true), op, value: z.number() }).strict(),
   ]),
 );
 
 const statMap = z.partialRecord(stat, z.number());
 const statusSpec = z.object({ type: status, chance: z.number().min(0).max(1), turns: z.number().int().min(1) });
 
+const activeSchema: z.ZodType<ActiveEffect> = z
+  .object({
+    mp_cost: z.number().min(0).optional(),
+    hp_cost_pct: z.number().min(0).max(1).optional(),
+    multiplier: z.number().optional(),
+    element: z.enum(["physical", "magic"]).optional(),
+    hits: z.number().int().min(1).max(10).optional(),
+    scale_stat: stat.optional(),
+    piercing_stat: stat.optional(),
+    piercing_flat: z.number().optional(),
+    area: z.boolean().optional(),
+    crit_bonus: z.number().optional(),
+    status: statusSpec.optional(),
+    heal_pct: z.number().optional(),
+    cleanse: z.boolean().optional(),
+    ultimate: z
+      .object({ gauge: z.enum(["boss_hits", "boss_parries"]), tiers: z.tuple([z.number().int().min(1), z.number().int().min(1), z.number().int().min(1)]) })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 export const effectSchema = z
   .object({
+    weapons: z.array(z.enum(WEAPON_TYPES)).optional(),
     stat_multiplier: statMap.optional(),
     stat_bonus: statMap.optional(),
     immunities: z.array(status).optional(),
@@ -45,27 +69,17 @@ export const effectSchema = z
         damage_multiplier: z.number().optional(),
         reflect_pct: z.number().optional(),
         hazard_immunity: z.array(z.string()).optional(),
+        blade_read: z.object({ pierce_at: z.number().int().min(1), execute_at: z.number().int().min(1) }).strict().optional(),
+        hundred_cuts: z.object({ per_hit: z.number().min(0), adjacent_at: z.number().int().min(1), screen_at: z.number().int().min(1) }).strict().optional(),
+        duelist: z.object({ stat, mult: z.number().min(1) }).strict().optional(),
+        riposte: activeSchema.optional(),
+        vault: z.boolean().optional(),
+        storm: activeSchema.optional(),
+        mastery_growth: z.number().min(0).optional(),
       })
       .strict()
       .optional(),
-    active: z
-      .object({
-        mp_cost: z.number().min(0).optional(),
-        hp_cost_pct: z.number().min(0).max(1).optional(),
-        multiplier: z.number().optional(),
-        element: z.enum(["physical", "magic"]).optional(),
-        hits: z.number().int().min(1).max(10).optional(),
-        scale_stat: stat.optional(),
-        piercing_stat: stat.optional(),
-        piercing_flat: z.number().optional(),
-        area: z.boolean().optional(),
-        crit_bonus: z.number().optional(),
-        status: statusSpec.optional(),
-        heal_pct: z.number().optional(),
-        cleanse: z.boolean().optional(),
-      })
-      .strict()
-      .optional(),
+    active: activeSchema.optional(),
   })
   .strict();
 
