@@ -314,6 +314,7 @@ describe("the new skills in the live game", () => {
     m.hp = m.maxHp = 1e6;
     m.nextAttackAt = 1e12;
     e.player.x = m.x - 700; // far enough that the arrow is still flying
+    e.monsters = e.monsters.filter((x) => x === m); // nothing else to aim at
     e.held.attack = true;
     run(150);
     e.held.attack = false;
