@@ -35,9 +35,17 @@ const blank = (zoneId: string, extra: Partial<LiveReport> = {}): LiveReport => (
   hitsTaken: 0,
   hitStreak: 0,
   guardStored: 0,
-  boss: { hits: 0, parries: 0, parryDmg: 0 },
+  boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 },
   bossEnd: false,
   stormFights: 0,
+  phantomFights: 0,
+  escapes: 0,
+  stunsDealt: 0,
+  combos7: 0,
+  cleanFights: 0,
+  quickDraws: 0,
+  farHits: 0,
+  markedRuns: 0,
   ...extra,
 });
 

@@ -16,7 +16,7 @@ const def = (d: Def): SkillDefinition => ({
 
 /**
  * Hidden mastery skills, with the names and numbers agreed in the design
- * (Sword and Shield masteries, plus the multi-mastery skills that work today).
+ * (one block per mastery, plus the multi-mastery skills).
  * Skills whose game systems don't exist yet are here but switched off.
  * Like the starter skills, the live copy is the skill_definitions table.
  */
@@ -110,6 +110,230 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     kind: "passive",
     conditions: { counter: "storm_fights_survived", op: ">=", value: 100 },
     effect: { passive: { storm: { multiplier: 1, scale_stat: "VIT", element: "physical", area: true } } },
+  }),
+
+  // ---------- Dagger mastery ----------
+  def({
+    id: "silent_finish",
+    name: "Silent Finish",
+    description:
+      "A first hit on an unaware enemy deals 3x damage. If it kills, you stay hidden, and each stealth kill in a row adds +1x, up to 10x. Monsters only. Needs a dagger in hand.",
+    kind: "passive",
+    conditions: { counter: "one_hit_kills", op: ">=", value: 1000 },
+    effect: { weapons: ["daggers"], passive: { silent_finish: { mult: 3, chain_max: 10, hide_s: 3 } } },
+  }),
+  def({
+    id: "phantom_legion",
+    name: "Phantom Legion",
+    description: "Every perfect dodge leaves a shadow clone that fights for 5 seconds (up to 5 at once, each dealing 30% of your damage).",
+    kind: "passive",
+    conditions: { counter: "phantom_fights", op: ">=", value: 100 },
+    effect: { passive: { phantom_legion: { pct: 0.3, life_s: 5, max: 5 } } },
+  }),
+  def({
+    id: "thousand_needles",
+    name: "Thousand Needles",
+    description: "Dagger crits stack bleeding. At 10 stacks, a normal monster dies instantly, and a boss loses 5% of its max HP. Needs a dagger in hand.",
+    kind: "passive",
+    conditions: { counter: "crits_daggers", op: ">=", value: 10000 },
+    effect: { weapons: ["daggers"], passive: { thousand_needles: { stacks: 10, boss_pct: 0.05, tick_pct: 0.01 } } },
+  }),
+  def({
+    id: "shadow_walk",
+    name: "Shadow Walk",
+    description: "Go fully invisible for 5 seconds, and appear behind the nearest enemy you can see. 10 minute cooldown.",
+    kind: "active",
+    conditions: { counter: "escapes", op: ">=", value: 300 },
+    effect: { active: { cooldown_s: 600, shadow_walk: { invisible_s: 5 } } },
+  }),
+  def({
+    id: "phantom_verdict",
+    name: "Phantom Verdict",
+    description:
+      "Ultimate, bosses only. Each boss attack you dodge charges the gauge. 50: 50% of the boss's HP (once per fight, resets the gauge). 100: a full kill. 200: a full kill + 20% EXP. Fire or keep charging at each tier.",
+    kind: "active",
+    conditions: { counter: "boss_fight_dodges_best", op: ">=", value: 100 },
+    effect: { active: { ultimate: { gauge: "boss_dodges", tiers: [50, 100, 200] } } },
+  }),
+
+  // ---------- Hammer mastery ----------
+  def({
+    id: "armor_crusher",
+    name: "Armor Crusher",
+    description: "Each hammer hit lowers the target's defense by 2%, stacking up to 50%. Needs a hammer in hand.",
+    kind: "passive",
+    conditions: { counter: "hits_hammer", op: ">=", value: 5000 },
+    effect: { weapons: ["hammer"], passive: { armor_crusher: { per_hit: 0.02, max: 0.5 } } },
+  }),
+  def({
+    id: "quake_slam",
+    name: "Quake Slam",
+    description: "Ground Slam sends out a shockwave that knocks down everything nearby.",
+    kind: "passive",
+    conditions: { counter: "skill_kills_ground_slam", op: ">=", value: 500 },
+    effect: { passive: { quake_slam: { stun_ms: 1000, reach: 300 } } },
+  }),
+  def({
+    id: "ringing_blow",
+    name: "Ringing Blow",
+    description: "Your stuns last 1 second longer, and stunned enemies take 30% more damage.",
+    kind: "passive",
+    conditions: { counter: "stuns_dealt", op: ">=", value: 1000 },
+    effect: { passive: { ringing_blow: { extra_ms: 1000, dmg_mult: 1.3 } } },
+  }),
+  def({
+    id: "full_swing",
+    name: "Full Swing",
+    description: "Charged swings can't be interrupted and deal 3x damage.",
+    kind: "passive",
+    conditions: { counter: "full_swing_wins", op: ">=", value: 100 },
+    effect: {},
+    enabled: false, // waits for charged swings
+  }),
+  def({
+    id: "anvil_breaker",
+    name: "Anvil Breaker",
+    description:
+      "Ultimate, bosses only. Each hammer hit on the boss charges the gauge. 50: 50% of the boss's HP (once per fight, resets the gauge). 100: a full kill. 200: a full kill + 20% EXP. Needs a hammer in hand.",
+    kind: "active",
+    conditions: { counter: "boss_fight_hits_hammer_best", op: ">=", value: 200 },
+    effect: { weapons: ["hammer"], active: { ultimate: { gauge: "boss_weapon_hits", tiers: [50, 100, 200] } } },
+  }),
+
+  // ---------- Fists mastery ----------
+  def({
+    id: "seven_strikes",
+    name: "Seven Strikes",
+    description: "The 7th hit of every combo deals 7x damage. Needs empty hands or a strength bracelet.",
+    kind: "passive",
+    conditions: { counter: "combos_7", op: ">=", value: 1000 },
+    effect: { weapons: ["unarmed", "strength_bracelet"], passive: { seven_strikes: { every: 7, mult: 7, gap_ms: 1000 } } },
+  }),
+  def({
+    id: "breath_control",
+    name: "Breath Control",
+    description: "Slowly regenerate HP and MP during combat.",
+    kind: "passive",
+    conditions: { counter: "clean_fights", op: ">=", value: 100 },
+    effect: { passive: { breath_control: { hp_pct: 0.01, mp: 1 } } },
+  }),
+  def({
+    id: "empty_vessel",
+    name: "Empty Vessel",
+    description: "AGI and VIT bonus while unarmored.",
+    kind: "passive",
+    conditions: { counter: "unarmored_wins", op: ">=", value: 500 },
+    effect: {},
+    enabled: false, // waits for armor
+  }),
+  def({
+    id: "pressure_point",
+    name: "Pressure Point",
+    description: "Your hits can paralyze for 1 second.",
+    kind: "passive",
+    conditions: { counter: "weak_point_crits", op: ">=", value: 500 },
+    effect: {},
+    enabled: false, // waits for weak points
+  }),
+  def({
+    id: "heavenly_palm",
+    name: "Heavenly Palm",
+    description:
+      "Ultimate, bosses only. Each unarmed hit on the boss charges the gauge. 100: 50% of the boss's HP (once per fight, resets the gauge). 200: a full kill. 400: a full kill + 20% EXP. Needs empty hands or a strength bracelet.",
+    kind: "active",
+    conditions: { counter: "boss_fight_hits_fists_best", op: ">=", value: 1000 },
+    effect: { weapons: ["unarmed", "strength_bracelet"], active: { ultimate: { gauge: "boss_weapon_hits", tiers: [100, 200, 400] } } },
+  }),
+
+  // ---------- Gun mastery ----------
+  def({
+    id: "quick_draw",
+    name: "Quick Draw",
+    description: "The first shot of every fight is a guaranteed crit. Needs a pistol in hand.",
+    kind: "passive",
+    conditions: { counter: "quick_draw_wins", op: ">=", value: 100 },
+    effect: { weapons: ["pistol"], passive: { quick_draw: true } },
+  }),
+  def({
+    id: "dead_mans_hand",
+    name: "Dead Man's Hand",
+    description: "Below 10% HP: +50% fire rate (unlimited ammo too, once guns use ammo). Needs a pistol in hand.",
+    kind: "passive",
+    conditions: { counter: "low_hp_wins", op: ">=", value: 200 },
+    effect: { weapons: ["pistol"], passive: { dead_mans_hand: { below: 0.1, rate: 1.5 } } },
+  }),
+  def({
+    id: "final_round",
+    name: "Final Round",
+    description: "The last bullet of every reload deals double damage and pierces.",
+    kind: "passive",
+    conditions: { counter: "last_bullet_kills", op: ">=", value: 300 },
+    effect: {},
+    enabled: false, // waits for ammo
+  }),
+  def({
+    id: "ricochet",
+    name: "Ricochet",
+    description: "Bullets bounce to a second target. Evolves to a third.",
+    kind: "passive",
+    conditions: { counter: "ricochet_hits", op: ">=", value: 1000 },
+    effect: {},
+    enabled: false, // waits for bouncing shots
+  }),
+  def({
+    id: "high_noon",
+    name: "High Noon",
+    description:
+      "Ultimate, bosses only. Each bullet that hits the boss charges the gauge. 100: 50% of the boss's HP (once per fight, resets the gauge). 200: a full kill. 400: a full kill + 20% EXP. Needs a pistol in hand.",
+    kind: "active",
+    conditions: { counter: "boss_fight_gun_dmg_best", op: ">=", value: 100000 },
+    effect: { weapons: ["pistol"], active: { ultimate: { gauge: "boss_weapon_hits", tiers: [100, 200, 400] } } },
+  }),
+
+  // ---------- Bow mastery ----------
+  def({
+    id: "hawk_line",
+    name: "Hawk Line",
+    description: "Range +50%, and damage grows with distance. Needs a bow in hand.",
+    kind: "passive",
+    conditions: { counter: "max_range_hits", op: ">=", value: 10000 },
+    effect: { weapons: ["bow"], passive: { hawk_line: { range: 1.5, max_mult: 1.5 } } },
+  }),
+  def({
+    id: "marked_prey",
+    name: "Marked Prey",
+    description: "The last enemy you shot is marked: your arrows never miss it, and it can't hide or turn invisible. Needs a bow in hand.",
+    kind: "passive",
+    conditions: { counter: "marked_runs", op: ">=", value: 50 },
+    effect: { weapons: ["bow"], passive: { marked_prey: true } },
+  }),
+  def({
+    id: "bending_shot",
+    name: "Bending Shot",
+    description: "Your arrows curve around walls and obstacles.",
+    kind: "passive",
+    conditions: { counter: "cover_hits", op: ">=", value: 500 },
+    effect: {},
+    enabled: false, // waits for cover
+  }),
+  def({
+    id: "last_arrow",
+    name: "Last Arrow",
+    description: "When you have 1 arrow left, it splits into 10.",
+    kind: "passive",
+    conditions: { counter: "last_arrow_wins", op: ">=", value: 50 },
+    effect: {},
+    enabled: false, // waits for arrows as ammo
+  }),
+  def({
+    id: "heavens_draw",
+    name: "Heaven's Draw",
+    description:
+      "Ultimate, bosses only. Each weak-point hit on the boss charges the gauge. 25: 50% of the boss's HP (once per fight, resets the gauge). 50: a full kill. 100: a full kill + 20% EXP.",
+    kind: "active",
+    conditions: { counter: "boss_weak_point_hits", op: ">=", value: 300 },
+    effect: {},
+    enabled: false, // waits for boss weak points
   }),
 
   // ---------- Multi-mastery ----------

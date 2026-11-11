@@ -102,6 +102,10 @@ const AI: Record<string, MonsterAI> = {
 
 export type Rng = () => number;
 
+/** How long a skill waits before it can be used again. */
+const cooldownMs = (s: { active: ActiveEffect; usesPerBattle: number | null }) =>
+  s.active.cooldown_s ? s.active.cooldown_s * 1000 : s.usesPerBattle ? 15000 : 1500;
+
 export interface CombatInfo {
   stats: Record<StatKey, number>;
   passive: Attacker["passive"] & {
@@ -113,7 +117,7 @@ export interface CombatInfo {
     pacifist?: boolean;
     poison_aura?: { chance: number; turns: number };
     revive_once?: boolean;
-  } & Pick<PassiveEffect, "blade_read" | "hundred_cuts" | "duelist" | "riposte" | "vault" | "storm">;
+  } & Omit<PassiveEffect, keyof Attacker["passive"] | "reflect_pct" | "mp_regen" | "heal_on_win_pct" | "hazard_immunity" | "dodge_invisibility" | "pacifist" | "poison_aura" | "revive_once">;
   statusResist: Partial<Record<StatusType, number>>;
   poisonMult: number;
   immunities: StatusType[];
@@ -193,6 +197,32 @@ export interface Monster {
   patrolDir: 1 | -1 | 0;
   fight: { start: number; direct: number; indirect: number; swings: number; inSwamp: boolean } | null;
   struckAt: number; // when its last blow landed (for the strike pose)
+  bleed: number; // Thousand Needles stacks
+  bleedNext: number;
+  defDown: number; // Armor Crusher: share of defense knocked off
+  lastSkill?: string; // the skill behind the last hit it took
+  escaped?: boolean; // you got away from it once (counted for Shadow Walk)
+}
+
+/** A Phantom Legion shadow clone. */
+export interface Clone {
+  x: number;
+  y: number;
+  facing: 1 | -1;
+  until: number;
+  nextAt: number;
+}
+
+/** One fight: from the first monster on you until none has been for a while. */
+interface FightState {
+  start: number;
+  maxFoes: number;
+  lastActive: number;
+  kills: number;
+  items: boolean;
+  firstShotAt: number | null;
+  dodgeRun: number; // dodges in a row this fight (Phantom Legion's unlock)
+  phantomCounted: boolean;
 }
 
 export interface Projectile {
@@ -206,6 +236,7 @@ export interface Projectile {
   spec?: AttackSpec;
   skillId?: string;
   counter?: boolean;
+  range?: number; // how far it could fly when shot
   monsterUid?: number;
   attack?: EnemyAttack;
   dead?: boolean;
@@ -269,9 +300,17 @@ const emptyAcc = () => ({
   minHpPct: 1,
   hitsTaken: 0,
   guardStored: 0,
-  boss: { hits: 0, parries: 0, parryDmg: 0 } as BossTally,
+  boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } as BossTally,
   bossEnd: false,
   stormFights: 0,
+  phantomFights: 0,
+  escapes: 0,
+  stunsDealt: 0,
+  combos7: 0,
+  cleanFights: 0,
+  quickDraws: 0,
+  farHits: 0,
+  markedRuns: 0,
   dirty: false,
 });
 
@@ -284,6 +323,8 @@ export interface BossFight {
   uid: number; // the boss
   hits: number; // boss attacks survived
   parries: number; // boss attacks parried
+  dodges: number; // boss attacks dodged
+  weaponHits: number; // your hits that landed on it
   others: boolean; // another monster joined in
   items: boolean; // you ate something
   gauges: Record<string, { base: number; half: boolean }>;
@@ -320,7 +361,16 @@ export class Engine {
   /** Damage stored by Vengeance Vault. */
   vaultStore = 0;
   private waveId = 1;
-  private fight: { maxFoes: number; lastActive: number } | null = null;
+  private fight: FightState | null = null;
+  clones: Clone[] = [];
+  /** Silent Finish: stealth kills in a row. */
+  stealthChain = 0;
+  /** Seven Strikes: hits in the current combo. */
+  private combo = 0;
+  private comboAt = 0;
+  /** Marked Prey: the marked monster, and hits in a row on it. */
+  markedUid: number | null = null;
+  private markRun = 0;
   bossFight: BossFight | null = null;
 
   constructor(opts: {
@@ -406,6 +456,7 @@ export class Engine {
     this.texts = [];
     this.fx = [];
     this.pendingHits = [];
+    this.clones = [];
     this.spawnTimers.clear();
     this.endFight(false);
     this.spawnAll();
@@ -442,6 +493,9 @@ export class Engine {
       spawnIndex,
       walkT: Math.random() * 1000,
       dashUntil: 0,
+      bleed: 0,
+      bleedNext: 0,
+      defDown: 0,
       patrolUntil: 0,
       patrolDir: 0,
       fight: null,
@@ -741,6 +795,7 @@ export class Engine {
     this.acc.itemsUsed.push(item.id);
     this.acc.dirty = true;
     if (this.bossFight) this.bossFight.items = true;
+    if (this.fight) this.fight.items = true;
     this.text(p.x, p.y - PLAYER_H - 10, `+${heal}`, "#5fd36a", 26);
     this.fxAdd("heal", p.x, p.y - PLAYER_H / 2, 40, 600, "#5fd36a");
   }
@@ -753,7 +808,7 @@ export class Engine {
     const s = this.skillSlots[i];
     if (!s) return null;
     const ready = this.player.skillReady[s.id] ?? 0;
-    const total = s.usesPerBattle ? 15000 : 1500;
+    const total = cooldownMs(s);
     const gauge = s.active.ultimate ? this.gauge(s.id, s.active) : undefined;
     return {
       ready: this.now >= ready && this.now >= this.player.globalReady && (!gauge || gauge.tier > 0),
@@ -770,7 +825,7 @@ export class Engine {
     const bf = this.bossFight;
     if (!bf) return { value: 0, tier: 0, next: u.tiers[0] };
     const g = bf.gauges[id] ?? { base: 0, half: false };
-    const value = (u.gauge === "boss_hits" ? bf.hits : bf.parries) - g.base;
+    const value = this.gaugeSource(u.gauge) - g.base;
     let tier = 0;
     for (let t = 3; t >= 1; t--) {
       if (value >= u.tiers[t - 1] && !(t === 1 && g.half)) {
@@ -780,6 +835,12 @@ export class Engine {
     }
     const next = u.tiers.find((x, k) => x > value && !(k === 0 && g.half)) ?? null;
     return { value, tier, next };
+  }
+
+  private gaugeSource(g: NonNullable<ActiveEffect["ultimate"]>["gauge"]) {
+    const bf = this.bossFight;
+    if (!bf) return 0;
+    return { boss_hits: bf.hits, boss_parries: bf.parries, boss_dodges: bf.dodges, boss_weapon_hits: bf.weaponHits }[g];
   }
 
   /** Fire an ultimate at the boss: 50% of its HP at the first tier, a full kill above. */
@@ -798,7 +859,7 @@ export class Engine {
     p.castUntil = this.now + 420;
     this.acc.skillUses[s.id] = (this.acc.skillUses[s.id] ?? 0) + 1;
     this.acc.dirty = true;
-    if (tier === 1) bf.gauges[s.id] = { base: u.gauge === "boss_hits" ? bf.hits : bf.parries, half: true };
+    if (tier === 1) bf.gauges[s.id] = { base: this.gaugeSource(u.gauge), half: true };
     const dmg = tier === 1 ? Math.min(Math.ceil(boss.maxHp * 0.5), Math.ceil(boss.hp)) : Math.ceil(boss.hp);
     this.text(p.x, p.y - PLAYER_H - 30, `${s.name.toUpperCase()}!`, "#ffd34d", 30);
     this.fxAdd("area", boss.x, boss.y - MONSTER_LOOKS[boss.id].body.h / 2, 160, 700, "#ffd34d");
@@ -816,13 +877,40 @@ export class Engine {
     if (this.now < (p.skillReady[s.id] ?? 0) || this.now < p.globalReady) return;
     p.mp -= a.mp_cost ?? 0;
     if (a.hp_cost_pct) p.hp = Math.max(1, p.hp - Math.round(p.maxHp * a.hp_cost_pct));
-    p.skillReady[s.id] = this.now + (s.usesPerBattle ? 15000 : 1500);
+    p.skillReady[s.id] = this.now + cooldownMs(s);
     p.globalReady = this.now + 600;
     p.castStart = this.now;
     p.castUntil = this.now + 420;
     this.acc.skillUses[s.id] = (this.acc.skillUses[s.id] ?? 0) + 1;
     this.acc.dirty = true;
     this.text(p.x, p.y - PLAYER_H - 24, s.name, "#bfe3ff", 18);
+    if (a.shadow_walk) {
+      // vanish, then appear behind the nearest monster you can see
+      const target = this.monsters
+        .filter((m) => m.state !== "dead" && Math.abs(m.x - p.x) < 640 && Math.abs(m.y - p.y) < 300)
+        .sort((x, y) => Math.abs(x.x - p.x) - Math.abs(y.x - p.x))[0];
+      this.hide(a.shadow_walk.invisible_s * 1000);
+      if (target) {
+        const behind = -target.facing;
+        p.x = Math.max(target.span[0] - 200, Math.min(target.span[1] + 200, target.x + behind * (MONSTER_LOOKS[target.id].body.w / 2 + 30)));
+        p.y = target.y;
+        p.vy = 0;
+        p.facing = (target.x >= p.x ? 1 : -1) as 1 | -1;
+      }
+      this.fxAdd("burst", p.x, p.y - PLAYER_H / 2, 40, 400, "#8a7bff");
+    }
+    // Quake Slam: Ground Slam knocks down everything nearby
+    const qs = this.combat.passive.quake_slam;
+    if (qs && s.id === "ground_slam") {
+      this.fxAdd("area", p.x, p.y - 10, qs.reach, 500, "#d9a85b");
+      for (const m of this.monsters) {
+        if (m.state === "dead" || Math.abs(m.x - p.x) > qs.reach || Math.abs(m.y - p.y) > 160) continue;
+        m.state = "stunned";
+        m.stateUntil = this.now + qs.stun_ms + (this.combat.passive.ringing_blow?.extra_ms ?? 0);
+        this.acc.stunsDealt++;
+        this.engage(m);
+      }
+    }
     if (a.heal_pct) {
       const heal = Math.min(p.maxHp - p.hp, Math.round(p.maxHp * a.heal_pct));
       p.hp += heal;
@@ -874,7 +962,8 @@ export class Engine {
       p.attackStart = now;
       p.attackUntil = now + Math.min(feel.interval - 40, 360);
       p.attackResolved = false;
-      p.nextAttackAt = now + feel.interval;
+      const dm = this.combat.passive.dead_mans_hand;
+      p.nextAttackAt = now + (dm && p.hp / p.maxHp < dm.below ? feel.interval / dm.rate : feel.interval);
     }
     if (!p.attackResolved && now >= p.attackStart + (WEAPON_FEEL[this.weapon].projectile ? 110 : 150)) {
       p.attackResolved = true;
@@ -893,6 +982,7 @@ export class Engine {
     this.updateMonsters();
     this.updatePlayerStatus();
     this.updateRespawns();
+    this.updateClones();
     this.updateFight();
     if (this.run) this.spawnRoom();
   }
@@ -910,7 +1000,8 @@ export class Engine {
         y: p.y - 46,
         vx: p.facing * pr.speed,
         vy: 0,
-        left: pr.range,
+        left: pr.range * (this.combat.passive.hawk_line?.range ?? 1),
+        range: pr.range * (this.combat.passive.hawk_line?.range ?? 1),
         kind: pr.kind,
         fromPlayer: true,
         spec,
@@ -947,25 +1038,46 @@ export class Engine {
   }
 
   /** A swing or skill hit you made: rolls it with your skills' bonuses, then lands it. */
-  private hitMonster(m: Monster, spec: AttackSpec, skillId: string | undefined, counter: boolean) {
+  private hitMonster(m: Monster, spec: AttackSpec, skillId: string | undefined, counter: boolean, extraMult = 1) {
     const p = this.player;
     const ps = this.combat.passive;
+    const isBoss = !!MONSTERS[m.id].isBoss;
     const attacker = withDuelist(this.combat, this.foesOnYou() <= 1);
-    const mods: HitMods = {};
+    const mods: HitMods = { mult: extraMult };
     let execute = false;
+    // Silent Finish: the first hit on a monster that hasn't noticed you
+    const sf = ps.silent_finish;
+    const stealth = sf && !isBoss && !m.aggro && !m.provoked ? Math.min(sf.chain_max, sf.mult + this.stealthChain) : 0;
+    if (stealth) mods.mult! *= stealth;
     // Blade Read: the hit after a parry
     if (this.bladeReady && ps.blade_read) {
       this.bladeReady = false;
       mods.sure = true;
       mods.crit = true;
       if (this.parryChain >= ps.blade_read.pierce_at) mods.ignoreDef = true;
-      if (this.parryChain >= ps.blade_read.execute_at && !MONSTERS[m.id].isBoss) {
+      if (this.parryChain >= ps.blade_read.execute_at && !isBoss) {
         execute = true;
         this.parryChain = 0;
       }
     }
+    // Quick Draw: the first shot of the fight
+    const f = this.ensureFight();
+    if (f.firstShotAt === null) {
+      f.firstShotAt = this.now;
+      if (ps.quick_draw) mods.crit = true;
+    }
+    // Marked Prey: never miss the marked target
+    if (ps.marked_prey && this.markedUid === m.uid) mods.sure = true;
+    // Armor Crusher and Ringing Blow
+    if (ps.armor_crusher) mods.defMult = 1 - m.defDown;
+    if (ps.ringing_blow && (m.state === "stunned" || m.statuses.stun)) mods.mult! *= ps.ringing_blow.dmg_mult;
+    // Seven Strikes: the 7th hit of a fists combo
+    const fists = WEAPONS[this.weapon].fists;
+    if (fists && this.now - this.comboAt > (ps.seven_strikes?.gap_ms ?? 1000)) this.combo = 0;
+    const seventh = fists && this.combo + 1 === (ps.seven_strikes?.every ?? 7);
+    if (seventh && ps.seven_strikes) mods.mult! *= ps.seven_strikes.mult;
     const run = this.hitStreak;
-    if (ps.hundred_cuts) mods.mult = streakMult(run, ps.hundred_cuts.per_hit);
+    if (ps.hundred_cuts) mods.mult! *= streakMult(run, ps.hundred_cuts.per_hit);
     const r = rollHit(this.rng, spec, attacker, this.defenderOf(m), p.hp / p.maxHp, mods);
     let dmg = r.dmg;
     if (!r.miss && counter) dmg = Math.round(dmg * PARRY_COUNTER_MULT);
@@ -976,12 +1088,96 @@ export class Engine {
     if (!r.miss) {
       hit.streak = run;
       this.hitStreak = run + 1;
+      if (stealth) hit.stealth = stealth;
+      if (seventh && ps.seven_strikes) hit.combo7 = true;
     }
     if (execute) {
       hit.execute = true;
       this.text(p.x, p.y - PLAYER_H - 30, "BLADE READ!", "#7fe0ff", 24);
     }
+    // combo and mark bookkeeping
+    if (fists) {
+      if (r.miss) this.combo = 0;
+      else {
+        this.combo++;
+        this.comboAt = this.now;
+        if (this.combo >= 7) {
+          this.combo = 0;
+          this.acc.combos7++;
+          if (hit.combo7) this.text(m.x, m.y - MONSTER_LOOKS[m.id].body.h - 40, "SEVEN STRIKES!", "#ffd34d", 20);
+        }
+      }
+    }
+    if (this.weapon === "bow") {
+      if (r.miss || this.markedUid !== m.uid) this.markRun = 0;
+      if (!r.miss && ++this.markRun >= 100) {
+        this.markRun = 0;
+        this.acc.markedRuns++;
+      }
+      this.markedUid = m.uid;
+    }
+    if (!r.miss && isBoss && this.bossFight?.uid === m.uid) {
+      this.bossFight.weaponHits++;
+      this.acc.boss.weaponHits++;
+      this.acc.boss.dmg += dmg;
+    }
     this.applyHit(m, hit, spec.status);
+    if (r.miss) return;
+    if (ps.armor_crusher) m.defDown = Math.min(ps.armor_crusher.max, m.defDown + ps.armor_crusher.per_hit);
+    // Thousand Needles: crits stack bleeding
+    const tn = ps.thousand_needles;
+    if (tn && r.crit && m.state !== "dead") {
+      m.bleed++;
+      if (!m.bleedNext) m.bleedNext = this.now + TICK_MS;
+      if (m.bleed >= tn.stacks) {
+        m.bleed = 0;
+        this.text(m.x, m.y - MONSTER_LOOKS[m.id].body.h - 40, "THOUSAND NEEDLES!", "#ff4f6d", 20);
+        this.indirectDamage(m, isBoss ? Math.ceil(m.maxHp * tn.boss_pct) : Math.ceil(m.hp), "", "#ff4f6d");
+      }
+    }
+    // Silent Finish: a stealth kill keeps you hidden and grows the chain
+    if (stealth) {
+      if (m.state === "dead") {
+        this.stealthChain = Math.min(sf!.chain_max - sf!.mult, this.stealthChain + 1);
+        this.hide(sf!.hide_s * 1000);
+        this.text(p.x, p.y - PLAYER_H - 30, `SILENT FINISH x${stealth}`, "#c792ff", 20);
+      } else this.stealthChain = 0;
+    }
+  }
+
+  /** Turn invisible: field monsters lose track of you. */
+  private hide(ms: number) {
+    this.player.invisibleUntil = Math.max(this.player.invisibleUntil, this.now + ms);
+    for (const x of this.monsters) if (x.spawnIndex >= 0) x.aggro = false;
+  }
+
+  /** Phantom Legion's clones swing at the nearest monster that's fighting you. */
+  private updateClones() {
+    const pl = this.combat.passive.phantom_legion;
+    this.clones = this.clones.filter((c) => this.now < c.until && !this.player.dead);
+    if (!pl) return;
+    const feel = WEAPON_FEEL[this.weapon];
+    for (const c of this.clones) {
+      if (this.now < c.nextAt) continue;
+      const target = this.monsters
+        .filter((m) => m.state !== "dead" && m.aggro && Math.abs(m.x - c.x) < 500 && Math.abs(m.y - c.y) < 200)
+        .sort((a, b) => Math.abs(a.x - c.x) - Math.abs(b.x - c.x))[0];
+      if (!target) continue;
+      c.nextAt = this.now + feel.interval;
+      c.facing = target.x >= c.x ? 1 : -1;
+      c.x = target.x - c.facing * (MONSTER_LOOKS[target.id].body.w / 2 + 24);
+      c.y = target.y;
+      const spec = attackSpec(this.weapon, this.combat);
+      const r = rollHit(this.rng, spec, this.combat, this.defenderOf(target), this.player.hp / this.player.maxHp);
+      this.fxAdd("slash", c.x + c.facing * 30, c.y - 44, 40, 200, "#8a7bff");
+      this.applyHit(target, { skillId: "phantom_legion", dmg: r.miss ? 0 : Math.max(1, Math.round(r.dmg * pl.pct)), crit: r.crit, miss: r.miss });
+    }
+  }
+
+  private ensureFight(): FightState {
+    if (!this.fight)
+      this.fight = { start: this.now, maxFoes: 0, lastActive: this.now, kills: 0, items: false, firstShotAt: null, dodgeRun: 0, phantomCounted: false };
+    return this.fight;
   }
 
   /** A strike a passive skill makes on its own (Iron Riposte, Eye of the Storm). Doesn't count toward hits in a row. */
@@ -996,6 +1192,7 @@ export class Engine {
   private applyHit(m: Monster, hit: ReportHit, status?: AttackSpec["status"]) {
     const p = this.player;
     this.acc.hits.push(hit);
+    if (!hit.miss) m.lastSkill = hit.skillId;
     this.acc.dirty = true;
     this.engage(m);
     m.fight!.swings++;
@@ -1039,8 +1236,10 @@ export class Engine {
     m.provoked = true;
     m.aggro = true;
     if (!m.fight) m.fight = { start: this.now, direct: 0, indirect: 0, swings: 0, inSwamp: this.player.inSwamp };
+    this.ensureFight();
     if (MONSTERS[m.id].isBoss) {
-      if (!this.bossFight) this.bossFight = { uid: m.uid, hits: 0, parries: 0, others: this.foesOnYou() > 1, items: false, gauges: {} };
+      if (!this.bossFight)
+        this.bossFight = { uid: m.uid, hits: 0, parries: 0, dodges: 0, weaponHits: 0, others: this.foesOnYou() > 1, items: false, gauges: {} };
     } else if (this.bossFight) this.bossFight.others = true;
   }
 
@@ -1048,20 +1247,28 @@ export class Engine {
   private updateFight() {
     const foes = this.player.dead ? 0 : this.foesOnYou();
     if (foes > 0) {
-      if (!this.fight) this.fight = { maxFoes: 0, lastActive: this.now };
-      this.fight.maxFoes = Math.max(this.fight.maxFoes, foes);
-      this.fight.lastActive = this.now;
+      const f = this.ensureFight();
+      f.maxFoes = Math.max(f.maxFoes, foes);
+      f.lastActive = this.now;
       if (this.bossFight && foes > 1) this.bossFight.others = true;
     } else if (this.fight && this.now - this.fight.lastActive >= FIGHT_END_MS) this.endFight(true);
   }
-
   /** A fight is over: the run of hits starts again, and so does any boss fight. */
   private endFight(survived: boolean) {
-    if (survived && this.fight && this.fight.maxFoes >= STORM_FOES && !this.player.dead) {
-      this.acc.stormFights++;
+    const f = this.fight;
+    if (survived && f && !this.player.dead) {
+      if (f.maxFoes >= STORM_FOES) this.acc.stormFights++;
+      if (f.kills > 0 && !f.items) this.acc.cleanFights++;
+      if (f.kills > 0 && f.firstShotAt !== null && f.firstShotAt - f.start <= 1000) this.acc.quickDraws++;
+      // got away: something you fought is still alive (each monster counts once)
+      const fled = this.monsters.filter((m) => m.state !== "dead" && m.fight && !m.escaped);
+      if (fled.length) this.acc.escapes++;
+      for (const m of fled) m.escaped = true;
       this.acc.dirty = true;
     }
     this.fight = null;
+    this.stealthChain = 0;
+    this.combo = 0;
     this.hitStreak = 0;
     this.parryChain = 0;
     this.bladeReady = false;
@@ -1074,7 +1281,11 @@ export class Engine {
 
   private addMonsterStatus(m: Monster, type: StatusType, turns: number) {
     const cur = m.statuses[type];
-    const until = this.now + turns * TICK_MS;
+    let until = this.now + turns * TICK_MS;
+    if (type === "stun") {
+      until += this.combat.passive.ringing_blow?.extra_ms ?? 0;
+      this.acc.stunsDealt++;
+    }
     if (cur) cur.until = Math.max(cur.until, until);
     else m.statuses[type] = { until, nextTick: this.now + TICK_MS };
     this.text(m.x, m.y - MONSTER_LOOKS[m.id].body.h - 30, type.toUpperCase(), "#c792ff", 16);
@@ -1112,8 +1323,10 @@ export class Engine {
       this.bossFight = null;
       this.acc.bossEnd = true;
     }
+    if (this.fight) this.fight.kills++;
     this.emit("kill", {
       duel,
+      killSkill: m.lastSkill,
       monsterId: m.id,
       directToTarget: f.direct,
       indirectToTarget: f.indirect,
@@ -1153,7 +1366,11 @@ export class Engine {
         });
         if (m) {
           pr.dead = true;
-          this.hitMonster(m, pr.spec!, pr.skillId, !!pr.counter);
+          // how far it flew: Hawk Line hits harder far away, and far hits count toward it
+          const share = pr.range ? Math.min(1, (pr.range - pr.left) / pr.range) : 0;
+          if (this.weapon === "bow" && share >= 0.8) this.acc.farHits++;
+          const hl = this.combat.passive.hawk_line;
+          this.hitMonster(m, pr.spec!, pr.skillId, !!pr.counter, hl ? 1 + (hl.max_mult - 1) * share : 1);
         }
       } else {
         const p = this.player;
@@ -1188,6 +1405,13 @@ export class Engine {
           if (type === "burn") this.indirectDamage(m, Math.max(1, Math.round(4 + m.maxHp * 0.03)), "", "#ff8a3d");
         }
         if (now >= st.until) delete m.statuses[type];
+      }
+      // Thousand Needles bleeding: 1% of max HP per stack, every tick
+      const tn = this.combat.passive.thousand_needles;
+      if (m.bleed > 0 && now >= m.bleedNext) {
+        m.bleedNext = now + TICK_MS;
+        if (tn) this.indirectDamage(m, Math.max(1, Math.round(m.maxHp * tn.tick_pct * m.bleed)), "", "#ff4f6d");
+        else m.bleed = 0;
       }
       if ((m.state as Monster["state"]) === "dead") continue; // poison may have just finished it
       if (m.fight && p.inSwamp) m.fight.inSwamp = true;
@@ -1355,7 +1579,8 @@ export class Engine {
       }
       if (this.combat.passive.riposte) this.procHit(m, "iron_riposte", this.combat.passive.riposte);
       m.state = "stunned";
-      m.stateUntil = this.now + PARRY_STUN_MS * (MONSTERS[m.id].isBoss ? 0.6 : 1);
+      m.stateUntil = this.now + PARRY_STUN_MS * (MONSTERS[m.id].isBoss ? 0.6 : 1) + (this.combat.passive.ringing_blow?.extra_ms ?? 0);
+      acc.stunsDealt++;
       p.counterUntil = this.now + 1600;
       p.blockStart = -1e9; // one parry per press
       this.text(p.x, p.y - PLAYER_H - 16, "PARRY!", "#7fe0ff", 30);
@@ -1366,6 +1591,21 @@ export class Engine {
     const r = rollEnemyHit(this.rng, atk, { STR: es.STR, INT: es.INT, DEX: es.DEX }, { VIT: this.combat.stats.VIT, INT: this.combat.stats.INT, AGI: pAgi }, this.weapon, p.blocking);
     if (r.miss) {
       acc.dodged++;
+      const f = this.ensureFight();
+      f.dodgeRun++;
+      if (f.dodgeRun >= 50 && !f.phantomCounted) {
+        f.phantomCounted = true;
+        acc.phantomFights++;
+      }
+      if (isBoss && this.bossFight) {
+        this.bossFight.dodges++;
+        acc.boss.dodges++;
+      }
+      const pl = this.combat.passive.phantom_legion;
+      if (pl && this.clones.length < pl.max) {
+        this.clones.push({ x: p.x - p.facing * 40, y: p.y, facing: p.facing, until: this.now + pl.life_s * 1000, nextAt: this.now + 250 });
+        this.text(p.x, p.y - PLAYER_H - 30, "PHANTOM!", "#8a7bff", 16);
+      }
       this.dodgeStreak++;
       this.dodgeStreakBest = Math.max(this.dodgeStreakBest, this.dodgeStreak);
       this.text(p.x, p.y - PLAYER_H - 10, "MISS", "#c8c8d0", 24);
@@ -1376,8 +1616,10 @@ export class Engine {
       return;
     }
     this.dodgeStreak = 0;
-    // you got hit: runs of hits and parries start over
+    // you got hit: runs of hits, parries, dodges and stealth kills start over
     this.hitStreak = 0;
+    this.stealthChain = 0;
+    if (this.fight) this.fight.dodgeRun = 0;
     this.parryChain = 0;
     this.bladeReady = false;
     if (p.blocking) acc.blocks++;
@@ -1486,6 +1728,11 @@ export class Engine {
     if (now >= p.regenNext) {
       p.regenNext = now + TICK_MS;
       if (this.combat.passive.mp_regen) p.mp = Math.min(p.maxMp, p.mp + this.combat.passive.mp_regen);
+      const bc = this.combat.passive.breath_control;
+      if (bc && this.fight) {
+        p.hp = Math.min(p.maxHp, p.hp + Math.ceil(p.maxHp * bc.hp_pct));
+        p.mp = Math.min(p.maxMp, p.mp + bc.mp);
+      }
     }
   }
 
@@ -1498,6 +1745,7 @@ export class Engine {
     p.blocking = false;
     this.pendingHits = [];
     this.vaultStore = 0;
+    this.clones = [];
     this.endFight(false);
     for (const x of this.monsters) {
       x.aggro = false;
@@ -1534,6 +1782,14 @@ export class Engine {
       boss: a.boss,
       bossEnd: a.bossEnd,
       stormFights: a.stormFights,
+      phantomFights: a.phantomFights,
+      escapes: a.escapes,
+      stunsDealt: a.stunsDealt,
+      combos7: a.combos7,
+      cleanFights: a.cleanFights,
+      quickDraws: a.quickDraws,
+      farHits: a.farHits,
+      markedRuns: a.markedRuns,
       inSwamp: false,
       minHpPct: Math.min(a.minHpPct, Math.max(0, p.hp) / p.maxHp),
       hp: Math.max(0, Math.round(p.hp)),

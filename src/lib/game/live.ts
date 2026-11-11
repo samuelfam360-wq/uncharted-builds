@@ -97,6 +97,7 @@ export interface HitMods {
   sure?: boolean; // can't miss
   crit?: boolean; // always crits
   ignoreDef?: boolean;
+  defMult?: number; // Armor Crusher: share of defense left
   mult?: number; // extra damage multiplier
 }
 
@@ -104,7 +105,7 @@ export interface HitMods {
 export function rollHit(rng: Rng, spec: AttackSpec, a: Attacker, target: Defender, hpPct: number, mods: HitMods = {}): HitRoll {
   if (!spec.area && !mods.sure && rng() >= hitChance(a.stats.DEX, target.AGI, spec.hitBonus)) return { miss: true, crit: false, dmg: 0 };
   const crit = mods.crit || rng() < critChance(a.stats.DEX, spec.critBonus);
-  const def = mods.ignoreDef ? 0 : spec.element === "magic" ? target.INT : target.VIT;
+  const def = mods.ignoreDef ? 0 : (spec.element === "magic" ? target.INT : target.VIT) * (mods.defMult ?? 1);
   const dmg = damageFormula(attackPower(spec, a, hpPct), spec.multiplier * (crit ? 1.5 : 1) * (mods.mult ?? 1), def, spec.piercing);
   return { miss: false, crit, dmg };
 }
@@ -168,6 +169,8 @@ export interface ReportHit {
   execute?: boolean; // Blade Read's one-shot on a monster that isn't a boss
   wave?: number; // Vengeance Vault: hits of one shockwave share a number
   ult?: 1 | 2 | 3; // ultimate fired at this tier
+  stealth?: number; // Silent Finish multiplier on a first hit from hiding
+  combo7?: boolean; // Seven Strikes: the 7th hit of a combo
 }
 
 /** Counts for the boss fight in progress, since the last report. */
@@ -175,6 +178,9 @@ export interface BossTally {
   hits: number; // boss attacks survived
   parries: number; // boss attacks parried
   parryDmg: number; // damage those parries stopped
+  dodges: number; // boss attacks dodged
+  weaponHits: number; // your hits that landed on the boss
+  dmg: number; // damage your hits did to the boss
 }
 
 export interface LiveReport {
@@ -212,6 +218,15 @@ export interface LiveReport {
   bossEnd: boolean; // the boss fight ended (boss beaten, you fell, or you got away)
   duel?: boolean; // kill: the whole fight was one-on-one with no items
   stormFights: number; // fights survived with 10+ enemies on you at once
+  phantomFights: number; // fights with 50 dodges in a row and no hit taken
+  escapes: number; // fights you got away from
+  stunsDealt: number; // monsters you stunned
+  combos7: number; // 7-hit combos landed
+  cleanFights: number; // fights won without eating anything
+  quickDraws: number; // fights won where you shot first within 1 second
+  farHits: number; // hits from near the end of your range
+  markedRuns: number; // 100 hits in a row on one target without a miss
+  killSkill?: string; // kill: the skill that landed the killing blow
 }
 
 const STATUS_SET = new Set<string>(["poison", "paralysis", "burn", "freeze", "silence", "slow", "stun"]);
@@ -247,6 +262,8 @@ export function cleanReport(body: unknown): LiveReport {
         execute: o.execute === true,
         wave: o.wave === undefined ? undefined : num(o.wave, 1e9),
         ult: o.ult === 1 || o.ult === 2 || o.ult === 3 ? o.ult : undefined,
+        stealth: o.stealth === undefined ? undefined : num(o.stealth, 100),
+        combo7: o.combo7 === true,
       };
     }),
     directToTarget: num(b.directToTarget),
@@ -272,9 +289,25 @@ export function cleanReport(body: unknown): LiveReport {
     hitsTaken: num(b.hitsTaken, 100000),
     hitStreak: num(b.hitStreak, 1e6),
     guardStored: num(b.guardStored),
-    boss: { hits: num(boss.hits, 100000), parries: num(boss.parries, 100000), parryDmg: num(boss.parryDmg) },
+    boss: {
+      hits: num(boss.hits, 100000),
+      parries: num(boss.parries, 100000),
+      parryDmg: num(boss.parryDmg),
+      dodges: num(boss.dodges, 100000),
+      weaponHits: num(boss.weaponHits, 100000),
+      dmg: num(boss.dmg),
+    },
     bossEnd: b.bossEnd === true,
     duel: b.duel === true,
     stormFights: num(b.stormFights, 1000),
+    phantomFights: num(b.phantomFights, 1000),
+    escapes: num(b.escapes, 1000),
+    stunsDealt: num(b.stunsDealt, 100000),
+    combos7: num(b.combos7, 100000),
+    cleanFights: num(b.cleanFights, 1000),
+    quickDraws: num(b.quickDraws, 1000),
+    farHits: num(b.farHits, 100000),
+    markedRuns: num(b.markedRuns, 1000),
+    killSkill: typeof b.killSkill === "string" ? b.killSkill.slice(0, 64) : undefined,
   };
 }
