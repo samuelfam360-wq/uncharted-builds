@@ -102,7 +102,9 @@ export type Condition =
   | { player: "level"; op: CompareOp; value: number }
   | { battle: string; op: CompareOp; value: number | string | boolean }
   | { skill: string; owned?: boolean }
-  | { zone: string };
+  | { zone: string }
+  /** Gap between your highest and lowest allocated stat. */
+  | { stat_spread: true; op: CompareOp; value: number };
 
 export interface ActiveEffect {
   mp_cost?: number;
@@ -118,6 +120,20 @@ export interface ActiveEffect {
   status?: { type: StatusType; chance: number; turns: number };
   heal_pct?: number;
   cleanse?: boolean;
+  /** A boss-only ultimate: fires from a gauge instead of costing MP. */
+  ultimate?: UltimateSpec;
+}
+
+/** What fills an ultimate's gauge during one boss fight. */
+export type GaugeSource = "boss_hits" | "boss_parries";
+
+/**
+ * Tiers: [half, kill, kill + EXP]. Firing at the first tier deals 50% of the
+ * boss's HP (once per fight) and resets the gauge; the other two finish it.
+ */
+export interface UltimateSpec {
+  gauge: GaugeSource;
+  tiers: [number, number, number];
 }
 
 export interface PassiveEffect {
@@ -133,9 +149,25 @@ export interface PassiveEffect {
   damage_multiplier?: number;
   reflect_pct?: number;
   hazard_immunity?: string[];
+  /** Blade Read: after a parry the next hit can't miss and crits; 3 in a row ignore defense; 20 in a row one-shot a non-boss. */
+  blade_read?: { pierce_at: number; execute_at: number };
+  /** Hundred Cuts: each hit in a row adds damage; long runs also hit nearby enemies, then everything on screen. */
+  hundred_cuts?: { per_hit: number; adjacent_at: number; screen_at: number };
+  /** Duelist's Oath: a stat multiplier while only one enemy is fighting you. */
+  duelist?: { stat: StatKey; mult: number };
+  /** Iron Riposte: every perfect block (a parry with a shield) strikes back. */
+  riposte?: ActiveEffect;
+  /** Vengeance Vault: damage blocked while guarding is stored and released as one piercing shockwave. */
+  vault?: boolean;
+  /** Eye of the Storm: every enemy hit you take strikes back at all enemies around you. */
+  storm?: ActiveEffect;
+  /** All masteries grow this much faster (1.1 = +10%). */
+  mastery_growth?: number;
 }
 
 export interface SkillEffect {
+  /** Weapon techniques only work with one of these in hand. */
+  weapons?: WeaponType[];
   stat_multiplier?: Partial<Record<StatKey, number>>;
   stat_bonus?: Partial<Record<StatKey, number>>;
   immunities?: StatusType[];

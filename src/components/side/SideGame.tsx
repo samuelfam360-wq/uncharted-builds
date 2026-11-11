@@ -588,7 +588,14 @@ export default function SideGame({
     const s = e?.skillSlots[i];
     const ss = e?.skillState(i);
     if (!s || !ss) return null;
-    return { name: s.name, short: shortName(s.name), ready: ss.ready, cdPct: ss.cdLeft / ss.cdTotal, enoughMp: ss.enoughMp };
+    return {
+      name: s.name,
+      short: shortName(s.name),
+      ready: ss.ready,
+      cdPct: ss.cdLeft / ss.cdTotal,
+      enoughMp: ss.enoughMp,
+      gauge: ss.gauge ? { value: ss.gauge.value, charged: ss.gauge.tier > 0 } : undefined,
+    };
   });
   const boss = e ? bossOf(e) : null;
   const food = e?.bag.filter((b) => b.qty > 0 && ITEMS[b.itemId]?.edible).reduce((n, b) => n + b.qty, 0) ?? 0;

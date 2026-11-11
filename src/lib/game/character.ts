@@ -131,8 +131,8 @@ export interface Derived {
   immunities: Set<StatusType>;
   statusResist: Partial<Record<StatusType, number>>;
   poisonMult: number;
-  passive: Required<Pick<PassiveEffect, "damage_multiplier" | "reflect_pct" | "mp_regen" | "heal_on_win_pct">> &
-    Omit<PassiveEffect, "damage_multiplier" | "reflect_pct" | "mp_regen" | "heal_on_win_pct"> & { hazard_immunity: string[] };
+  passive: Required<Pick<PassiveEffect, "damage_multiplier" | "reflect_pct" | "mp_regen" | "heal_on_win_pct" | "mastery_growth">> &
+    Omit<PassiveEffect, "damage_multiplier" | "reflect_pct" | "mp_regen" | "heal_on_win_pct" | "mastery_growth"> & { hazard_immunity: string[] };
   activeSkills: SkillDefinition[];
 }
 
@@ -143,13 +143,16 @@ export function equippedSkills(skills: PlayerSkill[], defs: Map<string, SkillDef
     .filter((d): d is SkillDefinition => !!d);
 }
 
+/** Weapon techniques only work with their weapon in hand. */
+export const worksWith = (d: SkillDefinition, weapon: WeaponType) => !d.effect.weapons?.length || d.effect.weapons.includes(weapon);
+
 export function derive(
   p: Player,
   skills: PlayerSkill[],
   defs: Map<string, SkillDefinition>,
   unique: UniqueItem | null,
 ): Derived {
-  const equipped = equippedSkills(skills, defs);
+  const equipped = equippedSkills(skills, defs).filter((d) => worksWith(d, p.weapon));
   // Item-attached skills are active while the item is worn.
   if (unique?.equipped) {
     for (const id of unique.attachedSkills) {
@@ -162,7 +165,7 @@ export function derive(
   const immunities = new Set<StatusType>();
   const statusResist: Partial<Record<StatusType, number>> = {};
   let poisonMult = 1;
-  const passive: Derived["passive"] = { damage_multiplier: 1, reflect_pct: 0, mp_regen: 0, heal_on_win_pct: 0, hazard_immunity: [] };
+  const passive: Derived["passive"] = { damage_multiplier: 1, reflect_pct: 0, mp_regen: 0, heal_on_win_pct: 0, mastery_growth: 1, hazard_immunity: [] };
 
   if (unique?.equipped) {
     for (const [k, v] of Object.entries(unique.statBonus)) bonus[k as StatKey] += Math.round((v ?? 0) * (1 + 0.1 * (unique.level - 1)));
@@ -185,7 +188,22 @@ export function derive(
       if (ps.mp_regen) passive.mp_regen += ps.mp_regen;
       if (ps.heal_on_win_pct) passive.heal_on_win_pct += ps.heal_on_win_pct;
       if (ps.hazard_immunity) passive.hazard_immunity.push(...ps.hazard_immunity);
-      for (const key of ["low_hp_damage", "unarmed_stat", "dodge_invisibility", "pacifist", "poison_aura", "revive_once", "flee_always"] as const) {
+      if (ps.mastery_growth) passive.mastery_growth *= ps.mastery_growth;
+      for (const key of [
+        "low_hp_damage",
+        "unarmed_stat",
+        "dodge_invisibility",
+        "pacifist",
+        "poison_aura",
+        "revive_once",
+        "flee_always",
+        "blade_read",
+        "hundred_cuts",
+        "duelist",
+        "riposte",
+        "vault",
+        "storm",
+      ] as const) {
         if (ps[key] !== undefined) (passive as Record<string, unknown>)[key] = ps[key];
       }
     }
