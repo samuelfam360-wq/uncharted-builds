@@ -20,7 +20,10 @@ describe("Dagger, Hammer, Fists, Gun and Bow skills: data", () => {
     for (const s of MASTERY_SKILLS) expect(skillDefinitionSchema.safeParse(s).success, s.id).toBe(true);
     const off = MASTERY_SKILLS.filter((s) => !s.enabled).map((s) => s.id);
     expect(off.sort()).toEqual(
-      ["bending_shot", "broken_blade", "empty_vessel", "final_round", "full_swing", "heavens_draw", "last_arrow", "pressure_point", "ricochet", "titans_defiance"].sort(),
+      [
+        ...["bending_shot", "broken_blade", "empty_vessel", "final_round", "full_swing", "heavens_draw", "last_arrow", "pressure_point", "ricochet", "titans_defiance"],
+        ...["storm_sovereign", "divine_blessing", "purify", "curse_ward", "hallowed_soul", "skewer"],
+      ].sort(),
     );
     const on = MASTERY_SKILLS.filter((s) => s.enabled).map((s) => s.name);
     for (const n of [
@@ -165,7 +168,7 @@ describe("the server's checks on the new hits", () => {
     await give(store, p.id, "anvil_breaker");
     const t = Date.now();
     await game.liveEnter(store, p.id, "hollow_of_the_mire", t - 600_000);
-    const bossHits = (n: number) => ({ hits: Array.from({ length: n }, () => hit(1)), boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: n, dmg: n } });
+    const bossHits = (n: number) => ({ hits: Array.from({ length: n }, () => hit(1)), boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: n, dmg: n, mp: 0, healed: 0, charges: 0 } });
     await game.liveReport(store, p.id, blank("hollow_of_the_mire", bossHits(50)), seeded(), t - 500_000);
     const c = await store.getCounters(p.id);
     expect(c.boss_fight_hits_hammer_best).toBe(50);
@@ -175,7 +178,7 @@ describe("the server's checks on the new hits", () => {
     ).resolves.toBeTruthy();
     // more boss hits than hits landed is refused
     await expect(
-      game.liveReport(store, p.id, blank("hollow_of_the_mire", { boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 1, dmg: 0 } }), seeded(), t),
+      game.liveReport(store, p.id, blank("hollow_of_the_mire", { boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 1, dmg: 0, mp: 0, healed: 0, charges: 0 } }), seeded(), t),
     ).rejects.toThrow("don't add up");
   });
 
@@ -327,6 +330,8 @@ describe("the new skills in the live game", () => {
     const { e, run, reports } = await engineSetup("mirewood_fields", []);
     const m = faceOff(e, "bog_toad");
     m.nextAttackAt = 1e12;
+    // nothing else may wander in and keep the fight going
+    e.monsters = e.monsters.filter((x) => x === m);
     e.held.attack = true;
     run(400);
     e.held.attack = false;

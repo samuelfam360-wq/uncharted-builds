@@ -215,6 +215,14 @@ export function derive(
         "dead_mans_hand",
         "hawk_line",
         "marked_prey",
+        "spell_thief",
+        "chain_catastrophe",
+        "blood_sorcery",
+        "grace_rebound",
+        "soul_drain",
+        "comet_charge",
+        "iron_momentum",
+        "sky_lance",
       ] as const) {
         if (ps[key] !== undefined) (passive as Record<string, unknown>)[key] = ps[key];
       }

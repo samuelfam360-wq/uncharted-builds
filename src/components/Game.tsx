@@ -179,7 +179,16 @@ export default function Game() {
             <h2 className="title mt-2 text-3xl text-gold">{unlocks[0].name}</h2>
             <p className="mt-3">{unlocks[0].description}</p>
             {unlocks[0].needsConfirmation && <p className="mt-3 text-sm text-blood">This power has a price. Decide whether to accept it in your MENU.</p>}
-            <p className="mt-4 text-xs italic text-muted">You can&apos;t quite tell what you did to earn it.</p>
+            {unlocks[0].earnedBy?.length ? (
+              <div className="mt-4 rounded-lg border border-gold/30 p-3 text-left text-sm">
+                <div className="label text-muted">How you earned it</div>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                  {unlocks[0].earnedBy.map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <button className="btn-primary mt-5 w-full" onClick={() => setUnlocks((q) => q.slice(1))}>
               {unlocks.length > 1 ? `Continue (${unlocks.length - 1} more)` : "Continue"}
             </button>

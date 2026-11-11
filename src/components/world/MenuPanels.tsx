@@ -136,6 +136,7 @@ export default function MenuPanels({
                 <span className="uppercase">{s.ultimate ? "ultimate" : s.kind}</span> · {s.description}
               </p>
               {s.needsWeapon && <p className="mt-1 text-xs text-blood">Asleep: needs {s.needsWeapon.join(" or ")} in hand.</p>}
+              {s.earnedBy?.length > 0 && <p className="mt-1 text-xs italic text-muted">Earned by: {s.earnedBy.join(" · ")}</p>}
             </li>
           ))}
         </ul>
