@@ -102,6 +102,9 @@ export const effectSchema = z
         comet_charge: z.object({ max_mult: z.number().min(1) }).strict().optional(),
         iron_momentum: z.boolean().optional(),
         sky_lance: z.object({ reach: z.number().min(0) }).strict().optional(),
+        spellblade: z.object({ int_mult: z.number().min(0) }).strict().optional(),
+        iron_sanctuary: z.object({ pct: z.number().min(0).max(1) }).strict().optional(),
+        life_palm: z.object({ pct: z.number().min(0).max(1) }).strict().optional(),
       })
       .strict()
       .optional(),

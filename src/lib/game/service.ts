@@ -572,6 +572,8 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   const stealthChain = counters.stealth_chain ?? 0;
   // Bonuses that can apply to any hit you make (the cap assumes the best case).
   const anyHitBonus = (ps.hawk_line?.max_mult ?? 1) * (ps.ringing_blow?.dmg_mult ?? 1);
+  // Spellblade: sword hits carry extra magic damage
+  const bladeBonus = ps.spellblade ? Math.ceil(atk.stats.INT * ps.spellblade.int_mult) : 0;
   /** Hits in a row can only grow one at a time (any drop is fine: you got hit). */
   const trackStreak = (h: ReportHit) => {
     const st = h.streak ?? 0;
@@ -658,7 +660,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
           chargeHits++;
           if (h.charge >= 1) fullCharge = true;
         }
-        const cap = Math.ceil(maxHit(spec, atk) * (h.counter ? PARRY_COUNTER_MULT : 1) * boost) + 1;
+        const cap = Math.ceil(maxHit(spec, atk) * (h.counter ? PARRY_COUNTER_MULT : 1) * boost) + bladeBonus + 1;
         if (h.dmg > cap) throw new GameError("A hit was bigger than possible");
       }
     }
@@ -874,13 +876,22 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   const graceHeal = gr ? Math.ceil(biggestHeal * (gr.mult - 1)) * Math.min(healCasts, Math.ceil(fights)) : 0;
   if (report.lowHpHeals > healCasts) throw new GameError("More heals than you made");
   // Soul Drain: a share of the damage you deal comes back as HP
-  if (report.drained > (ps.soul_drain ? Math.ceil(landed * ps.soul_drain.pct) + 1 : 0)) throw new GameError("Drained more HP than possible");
-  const allHeal = itemHeal + skillHeal + graceHeal + winHeal + breathHeal + report.drained;
+  // (Life Palm does the same with fists)
+  const drainPct = (ps.soul_drain?.pct ?? 0) + (ps.life_palm?.pct ?? 0);
+  if (report.drained > (drainPct ? Math.ceil(landed * drainPct) + 1 : 0)) throw new GameError("Drained more HP than possible");
+  // Iron Sanctuary: blocking heals part of what your guard soaked
+  const guardHeal = ps.iron_sanctuary ? Math.ceil(report.blockedDamage * ps.iron_sanctuary.pct) : 0;
+  const allHeal = itemHeal + skillHeal + graceHeal + winHeal + breathHeal + guardHeal + report.drained;
   if (bt.healed > allHeal + 1) throw new GameError("Boss fight counts don't add up");
   const hpCeiling = Math.min(d.maxHp, player.currentHp + allHeal);
   player.currentHp = report.type === "death" ? 0 : Math.max(0, Math.min(report.hp, hpCeiling));
   player.currentMp = Math.max(0, Math.min(report.mp, d.maxMp, player.currentMp - mpSpent + regen));
-  if (itemHeal > 0 || skillHeal > 0) inc(deltas, "hp_healed", Math.max(0, Math.min(itemHeal + skillHeal + winHeal, d.maxHp)));
+  // HP healed (combo unlocks): what you said you healed, never more than the server allows
+  const healedNow = Math.max(0, Math.min(report.healed + report.drained, allHeal));
+  if (healedNow > 0) {
+    inc(deltas, "hp_healed", healedNow);
+    if (WEAPON_MASTERY[player.weapon] === "fists") inc(deltas, "hp_healed_unarmed", healedNow);
+  }
 
   const log: string[] = [];
   let rewards: { exp: number; gold: number; drops: string[] } | null = null;
@@ -925,6 +936,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     if (report.hitsOnTarget === 1) inc(deltas, "one_hit_kills");
     if (report.killSkill && active.has(report.killSkill) && report.hits.some((h) => h.skillId === report.killSkill && !h.miss)) inc(deltas, `skill_kills_${report.killSkill}`);
     if (player.currentHp / d.maxHp < 0.1) inc(deltas, "low_hp_wins");
+    if (spellKill) inc(deltas, "spell_kills");
     if (report.zeroMpKill && killDef?.effect.active?.mp_cost && killEl === "magic" && report.hits.some((h) => h.skillId === report.killSkill && !h.miss)) inc(deltas, "zero_mp_kills");
     if (spellKill && report.killCast !== undefined) {
       // kills by one spell: the same cast, close together in time
