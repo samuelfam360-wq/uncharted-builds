@@ -40,8 +40,10 @@ const activeSchema: z.ZodType<ActiveEffect> = z
     status: statusSpec.optional(),
     heal_pct: z.number().optional(),
     cleanse: z.boolean().optional(),
+    cooldown_s: z.number().min(0).optional(),
+    shadow_walk: z.object({ invisible_s: z.number().min(0) }).strict().optional(),
     ultimate: z
-      .object({ gauge: z.enum(["boss_hits", "boss_parries"]), tiers: z.tuple([z.number().int().min(1), z.number().int().min(1), z.number().int().min(1)]) })
+      .object({ gauge: z.enum(["boss_hits", "boss_parries", "boss_dodges", "boss_weapon_hits"]), tiers: z.tuple([z.number().int().min(1), z.number().int().min(1), z.number().int().min(1)]) })
       .strict()
       .optional(),
   })
@@ -76,6 +78,18 @@ export const effectSchema = z
         vault: z.boolean().optional(),
         storm: activeSchema.optional(),
         mastery_growth: z.number().min(0).optional(),
+        silent_finish: z.object({ mult: z.number().min(1), chain_max: z.number().min(1), hide_s: z.number().min(0) }).strict().optional(),
+        phantom_legion: z.object({ pct: z.number().min(0).max(1), life_s: z.number().min(0), max: z.number().int().min(1) }).strict().optional(),
+        thousand_needles: z.object({ stacks: z.number().int().min(1), boss_pct: z.number().min(0).max(1), tick_pct: z.number().min(0) }).strict().optional(),
+        armor_crusher: z.object({ per_hit: z.number().min(0), max: z.number().min(0).max(1) }).strict().optional(),
+        quake_slam: z.object({ stun_ms: z.number().min(0), reach: z.number().min(0) }).strict().optional(),
+        ringing_blow: z.object({ extra_ms: z.number().min(0), dmg_mult: z.number().min(1) }).strict().optional(),
+        seven_strikes: z.object({ every: z.number().int().min(2), mult: z.number().min(1), gap_ms: z.number().min(0) }).strict().optional(),
+        breath_control: z.object({ hp_pct: z.number().min(0), mp: z.number().min(0) }).strict().optional(),
+        quick_draw: z.boolean().optional(),
+        dead_mans_hand: z.object({ below: z.number().min(0).max(1), rate: z.number().min(1) }).strict().optional(),
+        hawk_line: z.object({ range: z.number().min(1), max_mult: z.number().min(1) }).strict().optional(),
+        marked_prey: z.boolean().optional(),
       })
       .strict()
       .optional(),

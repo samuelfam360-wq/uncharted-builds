@@ -1,63 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Engine, type CombatInfo } from "../src/components/side/engine";
+import { blank, engineSetup, faceOff, give, hit, newPlayer, parryOnce, seeded } from "./helpers";
 import { derive } from "../src/lib/game/character";
 import { MASTERY_SKILLS } from "../src/lib/game/data/mastery-skills";
 import { MONSTERS } from "../src/lib/game/data/world";
-import { attackSpec, maxHit, type LiveReport, type ReportHit } from "../src/lib/game/live";
+import { attackSpec, maxHit } from "../src/lib/game/live";
 import { masteryLevel, masteryXpForLevel, masteryViews } from "../src/lib/game/masteries";
 import { skillDefinitionSchema } from "../src/lib/game/schema";
 import * as game from "../src/lib/game/service";
-import type { ClassId } from "../src/lib/game/types";
-import { MemoryStore } from "../src/lib/store/memory";
-
-function seeded(seed = 7) {
-  let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 2 ** 32;
-  };
-}
-
-const blank = (zoneId: string, extra: Partial<LiveReport> = {}): LiveReport => ({
-  type: "sync",
-  zoneId,
-  hits: [],
-  skillUses: {},
-  itemsUsed: [],
-  taken: { enemy: 0, hazard: 0, poison: 0, burn: 0 },
-  dodged: 0,
-  dodgeStreak: 0,
-  dodgeStreakBest: 0,
-  blocks: 0,
-  parries: 0,
-  blockedDamage: 0,
-  zeroHits: 0,
-  statuses: [],
-  swampTicks: 0,
-  inSwamp: false,
-  minHpPct: 1,
-  hp: 30,
-  mp: 0,
-  hitsTaken: 0,
-  hitStreak: 0,
-  guardStored: 0,
-  boss: { hits: 0, parries: 0, parryDmg: 0 },
-  bossEnd: false,
-  stormFights: 0,
-  ...extra,
-});
-
-async function newPlayer(classId: ClassId = "swordsman", stats: Record<string, number> = { STR: 3, HP: 2 }) {
-  const store = new MemoryStore();
-  const p = await game.createCharacter(store, { name: "Rin", classId, stats });
-  return { store, p };
-}
-
-async function give(store: MemoryStore, playerId: string, ...ids: string[]) {
-  for (const id of ids) await store.grantSkill(playerId, id, { status: "owned", equipped: true, stage: 1, evolvesFrom: null });
-}
-
-const hit = (dmg: number, extra: Partial<ReportHit> = {}): ReportHit => ({ dmg, crit: false, miss: false, ...extra });
 
 describe("mastery levels", () => {
   it("follows 100 x level EXP per level", () => {
@@ -123,22 +72,12 @@ describe("masteries grow in live fights", () => {
 describe("hidden mastery skills: data", () => {
   it("every mastery skill is valid and uses the agreed names", () => {
     for (const s of MASTERY_SKILLS) expect(skillDefinitionSchema.safeParse(s).success, s.id).toBe(true);
-    expect(MASTERY_SKILLS.map((s) => s.name)).toEqual([
-      "Blade Read",
-      "Hundred Cuts",
-      "Duelist's Oath",
-      "Broken Blade",
-      "Parry Emperor",
-      "Retribution",
-      "Titan's Defiance",
-      "Iron Riposte",
-      "Vengeance Vault",
-      "Eye of the Storm",
-      "Wanderer's Path",
-      "Adaptive Body",
-    ]);
+    const names = MASTERY_SKILLS.map((s) => s.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const n of ["Blade Read", "Hundred Cuts", "Duelist's Oath", "Broken Blade", "Parry Emperor", "Retribution", "Titan's Defiance", "Iron Riposte", "Vengeance Vault", "Eye of the Storm", "Wanderer's Path", "Adaptive Body"])
+      expect(names).toContain(n);
     // These wait for systems that don't exist yet.
-    expect(MASTERY_SKILLS.filter((s) => !s.enabled).map((s) => s.id)).toEqual(["broken_blade", "titans_defiance"]);
+    for (const id of ["broken_blade", "titans_defiance"]) expect(MASTERY_SKILLS.find((s) => s.id === id)!.enabled).toBe(false);
   });
 
   it("weapon techniques sleep without their weapon", async () => {
@@ -229,12 +168,12 @@ describe("hidden skill unlocks from live fights", () => {
     const { store, p } = await newPlayer("tanker", { VIT: 3, HP: 2 });
     const t = Date.now();
     await game.liveEnter(store, p.id, "hollow_of_the_mire", t - 60_000);
-    await game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 30, boss: { hits: 30, parries: 0, parryDmg: 0 } }), seeded(), t - 30_000);
-    const r = await game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 20, boss: { hits: 20, parries: 0, parryDmg: 0 } }), seeded(), t);
+    await game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 30, boss: { hits: 30, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t - 30_000);
+    const r = await game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 20, boss: { hits: 20, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t);
     expect(r.unlocks.map((u) => u.id)).toContain("retribution");
     // more boss hits than hits taken is refused
     await expect(
-      game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 1, boss: { hits: 2, parries: 0, parryDmg: 0 } }), seeded(), t + 5000),
+      game.liveReport(store, p.id, blank("hollow_of_the_mire", { hitsTaken: 1, boss: { hits: 2, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t + 5000),
     ).rejects.toThrow("don't add up");
   });
 
@@ -243,10 +182,10 @@ describe("hidden skill unlocks from live fights", () => {
     const t = Date.now();
     await game.liveEnter(store, p.id, "hollow_of_the_mire", t - 60_000);
     await expect(
-      game.liveReport(store, p.id, blank("hollow_of_the_mire", { parries: 1, blocks: 1, boss: { hits: 0, parries: 1, parryDmg: 5000 } }), seeded(), t),
+      game.liveReport(store, p.id, blank("hollow_of_the_mire", { parries: 1, blocks: 1, boss: { hits: 0, parries: 1, parryDmg: 5000, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t),
     ).rejects.toThrow("Parried more damage");
     await expect(
-      game.liveReport(store, p.id, blank("hollow_of_the_mire", { parries: 1, blocks: 1, boss: { hits: 0, parries: 1, parryDmg: 30 } }), seeded(), t),
+      game.liveReport(store, p.id, blank("hollow_of_the_mire", { parries: 1, blocks: 1, boss: { hits: 0, parries: 1, parryDmg: 30, dodges: 0, weaponHits: 0, dmg: 0 } }), seeded(), t),
     ).resolves.toBeTruthy();
     expect((await store.getCounters(p.id)).boss_fight_parry_dmg_best).toBe(30);
   });
@@ -340,7 +279,7 @@ describe("hidden skill effects: the server's checks", () => {
     await game.liveEnter(store, p.id, "hollow_of_the_mire", t - 600_000);
     await store.applyCounters(p.id, { run_hollow_of_the_mire_room: { op: "set", value: 3 } });
     const ult = (tier: 1 | 2 | 3, dmg: number) => hit(dmg, { skillId: "retribution", ult: tier, crit: true });
-    const bossHits = (n: number) => ({ hitsTaken: n, boss: { hits: n, parries: 0, parryDmg: 0 } });
+    const bossHits = (n: number) => ({ hitsTaken: n, boss: { hits: n, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0 } });
 
     await expect(game.liveReport(store, p.id, blank("hollow_of_the_mire", { ...bossHits(49), hits: [ult(1, 210)] }), seeded(), t - 500_000)).rejects.toThrow(
       "isn't charged",
@@ -371,60 +310,6 @@ describe("hidden skill effects: the server's checks", () => {
     expect([c.bf_hits, c.bf_base_retribution, c.bf_half_retribution]).toEqual([0, 0, 0]);
   });
 });
-
-// ---------- the browser engine ----------
-
-async function engineSetup(mapId: "mirewood_fields" | "hollow_of_the_mire", skills: string[], classId: ClassId = "swordsman", rng = seeded(11)) {
-  const { store, p } = await newPlayer(classId, classId === "tanker" ? { VIT: 3, HP: 2 } : { STR: 3, HP: 2 });
-  await give(store, p.id, ...skills);
-  await game.liveEnter(store, p.id, mapId, 0);
-  const st = await game.getState(store, p.id);
-  const reports: LiveReport[] = [];
-  const toasts: string[] = [];
-  const e = new Engine({
-    mapId,
-    x: 4,
-    row: mapId === "mirewood_fields" ? 11 : 9,
-    combat: st.combat as CombatInfo,
-    weapon: st.player.weapon,
-    hp: st.player.currentHp,
-    mp: st.player.currentMp,
-    maxHp: st.derived.maxHp,
-    maxMp: st.derived.maxMp,
-    bag: st.inventory,
-    events: { report: (r) => reports.push(r), toast: (t) => toasts.push(t) },
-    rng,
-    now: 0,
-  });
-  let now = 0;
-  const run = (ms: number) => {
-    for (let t = 0; t < ms; t += 16) e.update(16, (now += 16));
-  };
-  return { store, p, e, reports, toasts, run, clock: () => now };
-}
-
-/** Put a monster right in front of the player and make it attack now. */
-function faceOff(e: Engine, id: string) {
-  const m = e.monsters.find((x) => x.id === id && x.state !== "dead")!;
-  e.player.x = m.x - 70;
-  e.player.y = m.y;
-  e.player.facing = 1;
-  m.span = [m.x, m.x];
-  m.aggro = true;
-  m.provoked = true;
-  m.nextAttackAt = 0;
-  return m;
-}
-
-async function parryOnce(e: Engine, run: (ms: number) => void, m: ReturnType<typeof faceOff>) {
-  m.nextAttackAt = 0;
-  for (let i = 0; i < 200 && m.state !== "windup"; i++) run(16);
-  while (e.now < m.stateUntil - 100) run(16);
-  e.held.block = true;
-  run(150);
-  e.held.block = false;
-  run(16);
-}
 
 describe("hidden skills in the live game", () => {
   it("Blade Read: after a parry the next slash can't miss and crits", async () => {

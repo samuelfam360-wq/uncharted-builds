@@ -203,6 +203,18 @@ export function derive(
         "riposte",
         "vault",
         "storm",
+        "silent_finish",
+        "phantom_legion",
+        "thousand_needles",
+        "armor_crusher",
+        "quake_slam",
+        "ringing_blow",
+        "seven_strikes",
+        "breath_control",
+        "quick_draw",
+        "dead_mans_hand",
+        "hawk_line",
+        "marked_prey",
       ] as const) {
         if (ps[key] !== undefined) (passive as Record<string, unknown>)[key] = ps[key];
       }

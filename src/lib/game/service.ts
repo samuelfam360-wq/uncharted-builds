@@ -558,6 +558,12 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   let executes = 0;
   let streak = counters.hit_streak ?? 0;
   let bestStreak = 0;
+  let cloneHits = 0;
+  let combo7Hits = 0;
+  let stealthHits = 0;
+  const stealthChain = counters.stealth_chain ?? 0;
+  // Bonuses that can apply to any hit you make (the cap assumes the best case).
+  const anyHitBonus = (ps.hawk_line?.max_mult ?? 1) * (ps.ringing_blow?.dmg_mult ?? 1);
   const waves = new Map<number, number>();
   const ultFired: { id: string; tier: 1 | 2 | 3; dmg: number }[] = [];
   for (const h of report.hits) {
@@ -568,6 +574,12 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       const def = h.skillId ? active.get(h.skillId) : undefined;
       if (!def?.effect.active?.ultimate) throw new GameError("That skill isn't equipped");
       ultFired.push({ id: def.id, tier: h.ult, dmg: h.miss ? 0 : h.dmg });
+    } else if (h.skillId === "phantom_legion") {
+      // shadow clones swing like you, at a share of your damage
+      if (!ps.phantom_legion) throw new GameError("That skill isn't equipped");
+      const cap = Math.ceil(maxHit(specFor(), atk) * ps.phantom_legion.pct * anyHitBonus) + 1;
+      if (!h.miss && h.dmg > cap) throw new GameError("A hit was bigger than possible");
+      cloneHits++;
     } else if (h.skillId && procs[h.skillId] !== undefined) {
       if (!procs[h.skillId]) throw new GameError("That skill isn't equipped");
       const cap = Math.ceil(maxHit(specFor(h.skillId), atk)) + 1;
@@ -588,7 +600,19 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
         executes++;
         if (h.dmg > plainMaxHp) throw new GameError("A hit was bigger than possible");
       } else {
-        const boost = ps.hundred_cuts ? streakMult(st, ps.hundred_cuts.per_hit) : 1;
+        let boost = (ps.hundred_cuts ? streakMult(st, ps.hundred_cuts.per_hit) : 1) * anyHitBonus;
+        if (h.stealth) {
+          const sf = ps.silent_finish;
+          if (!sf) throw new GameError("That skill isn't equipped");
+          if (h.stealth > Math.min(sf.chain_max, sf.mult + stealthChain)) throw new GameError("That stealth chain doesn't add up");
+          boost *= h.stealth;
+          stealthHits++;
+        }
+        if (h.combo7) {
+          if (!ps.seven_strikes) throw new GameError("That skill isn't equipped");
+          boost *= ps.seven_strikes.mult;
+          combo7Hits++;
+        }
         const cap = Math.ceil(maxHit(spec, atk) * (h.counter ? PARRY_COUNTER_MULT : 1) * boost) + 1;
         if (h.dmg > cap) throw new GameError("A hit was bigger than possible");
       }
@@ -602,7 +626,13 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     if (h.crit) crits++;
   }
   // Hundred Cuts swings can hit a crowd at once.
-  const rate = MAX_HITS_PER_SEC * (ps.hundred_cuts ? 4 : 1);
+  const rate = MAX_HITS_PER_SEC * (ps.hundred_cuts ? 4 : 1) * (ps.dead_mans_hand?.rate ?? 1);
+  if (cloneHits > report.dodged * 30) throw new GameError("More clone hits than dodges allow");
+  if (ps.seven_strikes && combo7Hits > Math.floor(landedCount / ps.seven_strikes.every) + 1) throw new GameError("Too many combo finishers");
+  // Silent Finish: a stealth kill grows the chain; a stealth hit that doesn't kill, or getting hit, ends it.
+  const stealthKill = report.type === "kill" && report.hitsOnTarget === 1 && stealthHits > 0;
+  const chainMax = ps.silent_finish ? ps.silent_finish.chain_max - ps.silent_finish.mult : 0;
+  deltas.stealth_chain = { op: "set", value: stealthKill ? Math.min(chainMax, stealthChain + 1) : stealthHits || report.hitsTaken ? 0 : stealthChain };
   if (plainHits > rate * elapsedSec + 8) throw new GameError("Too many hits for the time that passed");
   if (report.hitsTaken > elapsedSec * 10 + 5) throw new GameError("Too many hits taken for the time that passed");
   if (riposteHits > report.parries) throw new GameError("More counters than parries");
@@ -624,19 +654,27 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
 
   // ----- the boss fight and its ultimates -----
   const bt = report.boss;
-  if (bt.hits > report.hitsTaken || bt.parries > report.parries) throw new GameError("Boss fight counts don't add up");
+  if (bt.hits > report.hitsTaken || bt.parries > report.parries || bt.dodges > report.dodged || bt.weaponHits > landedCount || bt.dmg > landed)
+    throw new GameError("Boss fight counts don't add up");
   if (bt.parryDmg > bt.parries * (maxBossBlow(zoneMonsters) + 1)) throw new GameError("Parried more damage than possible");
   const bf = {
     hits: (counters.bf_hits ?? 0) + bt.hits,
     parries: (counters.bf_parries ?? 0) + bt.parries,
     parryDmg: (counters.bf_parry_dmg ?? 0) + bt.parryDmg,
+    dodges: (counters.bf_dodges ?? 0) + bt.dodges,
+    weaponHits: (counters.bf_weapon_hits ?? 0) + bt.weaponHits,
+    dmg: (counters.bf_dmg ?? 0) + bt.dmg,
   };
+  const weaponMastery = WEAPON_MASTERY[player.weapon];
   if (bf.hits) maxCounter(deltas, "boss_fight_hits_best", bf.hits);
+  if (bf.dodges) maxCounter(deltas, "boss_fight_dodges_best", bf.dodges);
+  if (bf.weaponHits) maxCounter(deltas, `boss_fight_hits_${weaponMastery}_best`, bf.weaponHits);
+  if (bf.dmg) maxCounter(deltas, `boss_fight_${weaponMastery}_dmg_best`, bf.dmg);
   if (bf.parryDmg) maxCounter(deltas, "boss_fight_parry_dmg_best", bf.parryDmg);
   let ultExpBonus = 1;
   for (const u of ultFired) {
     const spec = active.get(u.id)!.effect.active!.ultimate!;
-    const source = spec.gauge === "boss_hits" ? bf.hits : bf.parries;
+    const source = { boss_hits: bf.hits, boss_parries: bf.parries, boss_dodges: bf.dodges, boss_weapon_hits: bf.weaponHits }[spec.gauge];
     const base = deltas[`bf_base_${u.id}`]?.value ?? counters[`bf_base_${u.id}`] ?? 0;
     if (bossMaxHp <= 0 || source - base < spec.tiers[u.tier - 1]) throw new GameError("That ultimate isn't charged yet");
     if (u.tier === 1) {
@@ -652,6 +690,9 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     deltas.bf_hits = { op: "set", value: bf.hits };
     deltas.bf_parries = { op: "set", value: bf.parries };
     deltas.bf_parry_dmg = { op: "set", value: bf.parryDmg };
+    deltas.bf_dodges = { op: "set", value: bf.dodges };
+    deltas.bf_weapon_hits = { op: "set", value: bf.weaponHits };
+    deltas.bf_dmg = { op: "set", value: bf.dmg };
   }
 
   // ----- skills and MP -----
@@ -665,8 +706,17 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     if (a.heal_pct) skillHeal += Math.round(d.maxHp * a.heal_pct) * n;
     inc(deltas, "skills_used", n);
     inc(deltas, `skill_used_${id}`, n);
+    if (a.cooldown_s) {
+      // long cooldowns (Shadow Walk): once per cooldown, with a little slack for the network
+      const last = counters[`cd_${id}`];
+      if (n > 1 || (last !== undefined && now - last < a.cooldown_s * 1000 * 0.95)) throw new GameError(`${def.name} is still on cooldown`);
+      deltas[`cd_${id}`] = { op: "set", value: now };
+    }
   }
-  const regen = d.passive.mp_regen * Math.floor((elapsedSec * 1000) / TICK_MS + 1);
+  const ticks = Math.floor((elapsedSec * 1000) / TICK_MS + 1);
+  const breath = ps.breath_control;
+  const regen = (d.passive.mp_regen + (breath?.mp ?? 0)) * ticks;
+  const breathHeal = breath ? Math.ceil(d.maxHp * breath.hp_pct) * ticks : 0;
   if (mpSpent > player.currentMp + regen + 1) throw new GameError("Not enough MP for those skills");
 
   // ----- items eaten -----
@@ -696,6 +746,24 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   inc(deltas, "defend_used", report.blocks);
   inc(deltas, "parries", report.parries);
   if (player.weapon === "large_shield") inc(deltas, "perfect_blocks", report.parries);
+  // ----- what the mastery skills' unlocks count -----
+  const fights = elapsedSec / 5 + 1;
+  if (report.escapes > fights || report.cleanFights > fights || report.quickDraws > fights) throw new GameError("Too many fights for the time that passed");
+  if (report.phantomFights > report.dodged / 50 + 1) throw new GameError("Not enough dodges for that");
+  if (report.stunsDealt > report.hits.length + report.parries) throw new GameError("More stuns than hits");
+  if (report.combos7 > landedCount / 7 + 1 || report.farHits > landedCount || report.markedRuns > landedCount / 100 + 1) throw new GameError("Hit counts don't add up");
+  inc(deltas, "escapes", report.escapes);
+  inc(deltas, "clean_fights", report.cleanFights);
+  inc(deltas, "phantom_fights", report.phantomFights);
+  inc(deltas, "stuns_dealt", report.stunsDealt);
+  inc(deltas, `hits_${player.weapon}`, landedCount);
+  if (player.weapon === "daggers") inc(deltas, "crits_daggers", crits);
+  if (WEAPON_MASTERY[player.weapon] === "fists") inc(deltas, "combos_7", report.combos7);
+  if (player.weapon === "pistol") inc(deltas, "quick_draw_wins", report.quickDraws);
+  if (player.weapon === "bow") {
+    inc(deltas, "max_range_hits", report.farHits);
+    inc(deltas, "marked_runs", report.markedRuns);
+  }
   if (report.stormFights > elapsedSec / 5 + 1) throw new GameError("Too many fights for the time that passed");
   inc(deltas, "storm_fights_survived", report.stormFights);
   inc(deltas, "damage_blocked", report.blockedDamage);
@@ -715,7 +783,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
 
   // ----- HP and MP: never more than the server allows -----
   const winHeal = report.type === "kill" ? Math.round(d.maxHp * d.passive.heal_on_win_pct) : 0;
-  const hpCeiling = Math.min(d.maxHp, player.currentHp + itemHeal + skillHeal + winHeal);
+  const hpCeiling = Math.min(d.maxHp, player.currentHp + itemHeal + skillHeal + winHeal + breathHeal);
   player.currentHp = report.type === "death" ? 0 : Math.max(0, Math.min(report.hp, hpCeiling));
   player.currentMp = Math.max(0, Math.min(report.mp, d.maxMp, player.currentMp - mpSpent + regen));
   if (itemHeal > 0 || skillHeal > 0) inc(deltas, "hp_healed", Math.max(0, Math.min(itemHeal + skillHeal + winHeal, d.maxHp)));
@@ -761,6 +829,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     if (m.isBoss) inc(deltas, "bosses_defeated");
     if (m.isBoss && report.duel && player.weapon === "sword" && report.itemsUsed.length === 0) inc(deltas, "boss_duels_won");
     if (report.hitsOnTarget === 1) inc(deltas, "one_hit_kills");
+    if (report.killSkill && active.has(report.killSkill) && report.hits.some((h) => h.skillId === report.killSkill && !h.miss)) inc(deltas, `skill_kills_${report.killSkill}`);
     if (player.currentHp / d.maxHp < 0.1) inc(deltas, "low_hp_wins");
 
     const drops = m.drops.filter((dr) => rng() < dr.chance).map((dr) => dr.itemId);
@@ -890,7 +959,7 @@ function maxBossBlow(monsters: (typeof MONSTERS)[string][]): number {
 
 /** A boss fight is over: clear its tallies and every ultimate gauge. */
 function resetBossFight(deltas: CounterDeltas, defs: Iterable<SkillDefinition>) {
-  for (const k of ["bf_hits", "bf_parries", "bf_parry_dmg"]) deltas[k] = { op: "set", value: 0 };
+  for (const k of ["bf_hits", "bf_parries", "bf_parry_dmg", "bf_dodges", "bf_weapon_hits", "bf_dmg"]) deltas[k] = { op: "set", value: 0 };
   for (const d of defs) {
     if (!d.effect.active?.ultimate) continue;
     deltas[`bf_base_${d.id}`] = { op: "set", value: 0 };

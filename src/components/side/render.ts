@@ -3,7 +3,7 @@
 
 import { MONSTERS } from "@/lib/game/data/world";
 import { SIDE_MAPS, TILE, isLadder, isPlatform, isSolid, isSwamp, mapSize, tileAt, type BuildingDef, type SideMap, type SideMapId } from "@/lib/game/data/sidemaps";
-import { PLAYER_H, type Engine, type Monster } from "./engine";
+import { PLAYER_H, WEAPON_FEEL, type Engine, type Monster } from "./engine";
 import { drawHero, type Look, type Pose } from "./hero";
 import { MONSTER_LOOKS, OUTLINE, drawMonster, ellipse, frame, makeCanvas, outlined, poly, roundRect, shade, tintedFrame } from "./sprites";
 
@@ -293,7 +293,21 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
   // monsters
   for (const mo of e.monsters) drawMonsterAt(ctx, mo, now);
 
-  // player
+  // Phantom Legion shadow clones, then the player
+  for (const c of e.clones) {
+    const left = (c.until - now) / 1000;
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.globalAlpha = Math.max(0.15, Math.min(0.5, left));
+    ctx.fillStyle = "rgba(90,70,200,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(0, -PLAYER_H / 2, 26, 46, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.scale(c.facing, 1);
+    const since = now - (c.nextAt - WEAPON_FEEL[e.weapon].interval);
+    drawHero(ctx, info.look, { pose: since < 300 ? "attack" : "idle", t: now, progress: Math.min(1, Math.max(0, since / 300)), weapon: e.weapon });
+    ctx.restore();
+  }
   drawPlayer(ctx, e, info);
 
   // projectiles

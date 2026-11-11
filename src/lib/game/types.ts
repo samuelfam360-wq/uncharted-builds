@@ -122,10 +122,14 @@ export interface ActiveEffect {
   cleanse?: boolean;
   /** A boss-only ultimate: fires from a gauge instead of costing MP. */
   ultimate?: UltimateSpec;
+  /** Long cooldown in seconds (instead of the usual 1.5). */
+  cooldown_s?: number;
+  /** Shadow Walk: turn invisible for this long and appear behind the nearest enemy. */
+  shadow_walk?: { invisible_s: number };
 }
 
 /** What fills an ultimate's gauge during one boss fight. */
-export type GaugeSource = "boss_hits" | "boss_parries";
+export type GaugeSource = "boss_hits" | "boss_parries" | "boss_dodges" | "boss_weapon_hits";
 
 /**
  * Tiers: [half, kill, kill + EXP]. Firing at the first tier deals 50% of the
@@ -163,6 +167,30 @@ export interface PassiveEffect {
   storm?: ActiveEffect;
   /** All masteries grow this much faster (1.1 = +10%). */
   mastery_growth?: number;
+  /** Silent Finish: a first hit on an unaware enemy deals `mult`x; a kill keeps you hidden and each one in a row adds +1x (up to chain_max). */
+  silent_finish?: { mult: number; chain_max: number; hide_s: number };
+  /** Phantom Legion: each dodge leaves a shadow clone that fights for a while at a share of your damage. */
+  phantom_legion?: { pct: number; life_s: number; max: number };
+  /** Thousand Needles: crits stack bleeding; at `stacks` a normal monster dies and a boss loses boss_pct of its HP. */
+  thousand_needles?: { stacks: number; boss_pct: number; tick_pct: number };
+  /** Armor Crusher: each hit lowers the target's defense, stacking. */
+  armor_crusher?: { per_hit: number; max: number };
+  /** Quake Slam: Ground Slam knocks down everything nearby. */
+  quake_slam?: { stun_ms: number; reach: number };
+  /** Ringing Blow: your stuns last longer and stunned enemies take more damage. */
+  ringing_blow?: { extra_ms: number; dmg_mult: number };
+  /** Seven Strikes: the 7th hit of every combo deals 7x. */
+  seven_strikes?: { every: number; mult: number; gap_ms: number };
+  /** Breath Control: regain HP and MP every few seconds while fighting. */
+  breath_control?: { hp_pct: number; mp: number };
+  /** Quick Draw: the first shot of every fight crits. */
+  quick_draw?: boolean;
+  /** Dead Man's Hand: faster attacks while low on HP. */
+  dead_mans_hand?: { below: number; rate: number };
+  /** Hawk Line: more range, and damage grows with distance. */
+  hawk_line?: { range: number; max_mult: number };
+  /** Marked Prey: your last target is marked and your shots never miss it. */
+  marked_prey?: boolean;
 }
 
 export interface SkillEffect {
