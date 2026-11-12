@@ -342,3 +342,38 @@ describe("breeding: a new mixed monster", () => {
     expect((await game.getState(store, p.id)).pets).toHaveLength(5);
   });
 });
+
+describe("taming with a pet out", () => {
+  it("your pet stops biting a monster that's ready to tame, so you can tame it", async () => {
+    const { e, run, reports, store, p, clock } = await engineSetup("mirewood_fields", [], "tamer");
+    await game.chooseFirstPet(store, p.id, "thorn_wolf");
+    const atk = { stats: { HP: 75, MP: 0, STR: 20, VIT: 7, AGI: 12, DEX: 13, INT: 0 }, passive: { damage_multiplier: 1 } };
+    e.setPets([{ id: "a", species: "thorn_wolf", attacker: atk }]);
+    const m = faceOff(e, "green_slime");
+    m.nextAttackAt = 1e12;
+    e.player.hp = e.player.maxHp = 1e6;
+    // the slime's condition: eat something next to it (the bag needs food)
+    (e as unknown as { bag: { itemId: string; qty: number }[] }).bag = [{ itemId: "rabbit_meat", qty: 1 }];
+    (e as unknown as { engage(m: unknown): void }).engage(m);
+    e.player.hp = e.player.maxHp - 100;
+    e.eatBest();
+    run(16);
+    expect(e.tameProgress(m)).toBe(1);
+    // the pet brings it low, then waits
+    for (let i = 0; i < 1000 && !e.readyToTame(m) && m.state !== "dead"; i++) run(16);
+    expect(m.state).not.toBe("dead");
+    expect(e.readyToTame(m)).toBe(true);
+    const hp = m.hp;
+    run(5000);
+    expect(m.hp).toBe(hp);
+    expect(e.tameTarget()).toBe(m);
+    expect(e.tame(m)).toBe(true);
+    e.flush();
+    // the server takes it: the slime joins you
+    await store.changeItem(p.id, "rabbit_meat", 1); // the meal it ate in the fight
+    let t = clock() + 60_000;
+    for (const r of reports) await game.liveReport(store, p.id, r, seeded(), (t += 1000));
+    const st = await game.getState(store, p.id);
+    expect(st.pets.map((x) => x.species).sort()).toEqual(["green_slime", "thorn_wolf"]);
+  });
+});
