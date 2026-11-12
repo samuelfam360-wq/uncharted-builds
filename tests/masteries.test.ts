@@ -105,14 +105,14 @@ describe("hidden mastery skills: data", () => {
   });
 });
 
-describe("the 80% reveal", () => {
-  it("shows what's left at 80%, never the name", async () => {
+describe("the 50% reveal", () => {
+  it("shows what's left at 50%, never the name", async () => {
     const { store, p } = await newPlayer();
-    await store.applyCounters(p.id, { parries: { op: "set", value: 799 } });
+    await store.applyCounters(p.id, { parries: { op: "set", value: 499 } });
     expect((await game.getState(store, p.id)).hints).toEqual([]);
-    await store.applyCounters(p.id, { parries: { op: "set", value: 800 } });
+    await store.applyCounters(p.id, { parries: { op: "set", value: 500 } });
     const hints = (await game.getState(store, p.id)).hints;
-    expect(hints).toEqual([{ pct: 0.8, left: ["Parry 200 more attacks"] }]);
+    expect(hints).toEqual([{ pct: 0.5, left: ["Parry 500 more attacks"] }]);
     expect(JSON.stringify(hints)).not.toContain("Blade");
   });
 

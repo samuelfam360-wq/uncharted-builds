@@ -595,7 +595,7 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     name: "Green Slime's Mercy",
     description: "A coat of green slime covers your whole body. Slimes' blows bounce right off: you take no damage from any slime.",
     kind: "passive",
-    conditions: { counter: "killed_by_green_slime", op: ">=", value: 50 },
+    conditions: { counter: "killed_by_green_slime", op: ">=", value: 20 },
     effect: { passive: { slime_mercy: { monsters: ["green_slime"] } } },
   }),
   def({
@@ -605,7 +605,7 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     kind: "passive",
     conditions: {
       all: [
-        { counter: "killed_by_horned_rabbit", op: ">=", value: 50 },
+        { counter: "killed_by_horned_rabbit", op: ">=", value: 20 },
         { counter: "defeated_horned_rabbit", op: ">=", value: 50 },
       ],
     },
@@ -616,7 +616,7 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     name: "Poison Toad Armour",
     description: "+10% resistance to poison.",
     kind: "passive",
-    conditions: { counter: "poison_deaths_bog_toad", op: ">=", value: 50 },
+    conditions: { counter: "poison_deaths_bog_toad", op: ">=", value: 20 },
     effect: { status_resist: { poison: 0.1 } },
   }),
   def({
@@ -624,7 +624,7 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     name: "Wolf's Scars",
     description: "An aura of old scars: monsters inside it move 30% slower.",
     kind: "passive",
-    conditions: { counter: "killed_by_thorn_wolf", op: ">=", value: 50 },
+    conditions: { counter: "killed_by_thorn_wolf", op: ">=", value: 20 },
     effect: { passive: { scar_aura: { radius: 200, slow: 0.3 } } },
   }),
 ];

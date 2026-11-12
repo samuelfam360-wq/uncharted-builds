@@ -70,8 +70,11 @@ describe("Mirefang's Egg", () => {
     await game.liveEnter(store, p.id, "mirewood_fields", t);
     // more swamp time than time passed is refused
     await expect(swamp(store, p.id, 60_000, t + 10_000)).rejects.toThrow(/swamp/);
-    // 8 minutes in the swamp: the condition shows
-    for (let i = 0; i < 4; i++) await swamp(store, p.id, 120_000, (t += 120_000));
+    // 4 minutes in the swamp (40%): still a secret
+    for (let i = 0; i < 2; i++) await swamp(store, p.id, 120_000, (t += 120_000));
+    expect((await game.getState(store, p.id)).eggs[0].hatch).toBeNull();
+    // 8 minutes (past halfway): the condition shows
+    for (let i = 0; i < 2; i++) await swamp(store, p.id, 120_000, (t += 120_000));
     let egg = (await game.getState(store, p.id)).eggs[0];
     expect(egg.pct).toBeCloseTo(0.8);
     expect(egg.hatch).toContain("poison swamp");
