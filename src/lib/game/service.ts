@@ -21,7 +21,7 @@ import { findUnlocks, type BattleSummary } from "./rules";
 import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport, type ReportHit } from "./live";
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
 import { describeCondition, revealHints } from "./reveal";
-import { BREED_LEVEL, BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, isBreed, speciesParts, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, activePets, summonLimit, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
+import { BOND_GAIN, addBond, addOutTime, fullBondPets, heartsOf, BREED_LEVEL, BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, isBreed, speciesParts, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, activePets, summonLimit, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
 import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type Counters, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
@@ -1055,6 +1055,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     // the pets that are out share the win
     for (const out of outPets) {
       out.petPoints += m.isBoss ? PET_POINTS.boss : PET_POINTS.kill;
+      if (addBond(out, m.isBoss ? BOND_GAIN.boss : BOND_GAIN.kill) > 0) log.push(`Your ${speciesName(out.species)} feels closer to you: ${heartsOf(out)} ♥`);
       if (grantPetExp(out, Math.round(exp * (ps.shared_glory?.exp_mult ?? 1))) > 0) log.push(`Your ${speciesName(out.species)} reached level ${out.level}!`);
     }
     if (report.petKill && petDmg > 0 && outPets.length) {
@@ -1217,6 +1218,10 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       tamed = publicPet(pet);
     }
   }
+
+  // time out with you grows bond too
+  for (const out of outPets) if (addOutTime(out, elapsedSec * 1000) > 0) log.push(`Your ${speciesName(out.species)} feels closer to you: ${heartsOf(out)} ♥`);
+  if (outPets.length) maxCounter(deltas, "max_bond_pets", fullBondPets(player));
 
   // Save: items, counters, player. Items go one by one so the store keeps its own rules.
   const before = new Map(invNow.map((i) => [i.itemId, i.qty]));
@@ -1402,6 +1407,24 @@ export async function setActivePet(store: GameStore, playerId: string, petId: st
   }
   await store.savePlayer(player);
   return { ok: true };
+}
+
+/** Feed a pet something edible from your bag: it grows closer to you. */
+export async function feedPet(store: GameStore, playerId: string, petId: string, itemId: string) {
+  const [player, inv] = await Promise.all([petPlayer(store, playerId), store.getInventory(playerId)]);
+  const pet = player.pets.find((p) => p.id === petId);
+  if (!pet) throw new GameError("That pet isn't yours");
+  if (!ITEMS[itemId]?.edible) throw new GameError("Pets only eat food");
+  if (!inv.some((i) => i.itemId === itemId && i.qty > 0)) throw new GameError("You don't have that item");
+  const up = addBond(pet, BOND_GAIN.feed);
+  await Promise.all([
+    store.changeItem(playerId, itemId, -1),
+    store.savePlayer(player),
+    store.applyCounters(playerId, { max_bond_pets: { op: "max", value: fullBondPets(player) } }),
+  ]);
+  const name = speciesName(pet.species);
+  const log = [up > 0 ? `Your ${name} loved the ${ITEMS[itemId].name}! It feels closer to you: ${heartsOf(pet)} ♥` : `Your ${name} happily eats the ${ITEMS[itemId].name}.`];
+  return { pet: publicPet(pet), log, unlocks: await checkUnlocks(store, playerId) };
 }
 
 /** Place a pet's free stat points. */
