@@ -1475,7 +1475,8 @@ export class Engine {
     const target = p.dead
       ? undefined
       : this.monsters
-          .filter((m) => m.state !== "dead" && (m.fight || m.aggro) && Math.abs(m.x - p.x) < 450 && Math.abs(m.y - p.y) < 220)
+          // a monster ready to tame is left alone, so you can tame it instead of your pet finishing it
+          .filter((m) => m.state !== "dead" && (m.fight || m.aggro) && !this.readyToTame(m) && Math.abs(m.x - p.x) < 450 && Math.abs(m.y - p.y) < 220)
           .sort((a, b) => Math.abs(a.x - pet.x) - Math.abs(b.x - pet.x))[0];
     const step = (420 * dtMs) / 1000;
     let goalX: number;
@@ -1505,7 +1506,11 @@ export class Engine {
     pet.facing = target.x >= pet.x ? 1 : -1;
     const spec = attackSpec("unarmed", pet.attacker);
     const r = rollHit(this.rng, spec, pet.attacker, this.defenderOf(target), 1);
-    this.applyHit(target, { pet: true, dmg: r.miss ? 0 : r.dmg, crit: r.crit, miss: r.miss }, undefined, pet.id);
+    // a monster whose taming condition you've met: your pet weakens it but never finishes it
+    const hold = this.tameable(target);
+    if (hold && target.hp <= 1) return;
+    const dmg = r.miss ? 0 : hold ? Math.min(r.dmg, Math.ceil(target.hp) - 1) : r.dmg;
+    this.applyHit(target, { pet: true, dmg, crit: r.crit, miss: r.miss }, undefined, pet.id);
   }
 
   private tameOf(m: Monster): TameState {
@@ -1534,15 +1539,25 @@ export class Engine {
     }
   }
 
-  /** A monster close by that you could tame right now (tamer wand in hand, weak enough, condition met). */
+  /** Its hidden condition is met and you hold the tamer wand: it could be tamed once it's weak enough. */
+  tameable(m: Monster): boolean {
+    if (this.player.dead || this.weapon !== "tamer_wand") return false;
+    if (m.state === "dead" || !m.fight || MONSTERS[m.id].isBoss || !TAME_CONDITIONS[m.id]) return false;
+    return this.tameProgress(m) >= 1;
+  }
+
+  /** Ready to tame: tameable and weak enough. */
+  readyToTame(m: Monster): boolean {
+    return this.tameable(m) && m.hp / m.maxHp < TAME_HP_SHARE;
+  }
+
+  /** A monster close by that you could tame right now. */
   tameTarget(): Monster | null {
     const p = this.player;
-    if (p.dead || this.weapon !== "tamer_wand") return null;
     for (const m of this.monsters) {
-      if (m.state === "dead" || !m.fight || MONSTERS[m.id].isBoss || !TAME_CONDITIONS[m.id]) continue;
-      if (m.hp / m.maxHp >= TAME_HP_SHARE) continue;
+      if (!this.readyToTame(m)) continue;
       if (Math.abs(m.x - p.x) > 260 || Math.abs(m.y - p.y) > 160) continue;
-      if (this.tameProgress(m) >= 1) return m;
+      return m;
     }
     return null;
   }
