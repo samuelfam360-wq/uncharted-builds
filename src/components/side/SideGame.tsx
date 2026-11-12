@@ -14,6 +14,7 @@ import { lookFor, type Look } from "./hero";
 import { bossOf, drawFrame, updateCamera, type Camera } from "./render";
 import { loadArt } from "./sprites";
 import TouchControls, { type SkillButton } from "./TouchControls";
+import { HintStrip } from "@/components/world/HintStrip";
 
 type GameState = Awaited<ReturnType<typeof getState>>;
 
@@ -656,28 +657,42 @@ export default function SideGame({
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
       {!ready && <div className="absolute inset-0 flex items-center justify-center text-lg font-bold text-[#2f2a3b]">Loading…</div>}
 
-      {/* status: name, level, HP / MP / EXP */}
-      <div className="pointer-events-none absolute left-2 top-2 w-[min(300px,40vw)] rounded-xl border-[3px] border-[#2f2a3b] bg-[#fdf6e3]/95 px-2 py-1 text-[#2f2a3b] shadow-[0_3px_0_#2f2a3b]">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate text-xs font-black sm:text-sm">{player.name}</span>
-          <span className="shrink-0 text-[10px] font-bold sm:text-[11px]">
-            Lv {player.level} · {state.className} · {player.gold}g
-          </span>
-        </div>
-        {[
-          { label: "HP", pct: hpPct, color: "#e0533d", text: `${Math.max(0, Math.round(p?.hp ?? 0))}/${p?.maxHp ?? 0}` },
-          { label: "MP", pct: mpPct, color: "#3f8fd9", text: `${Math.round(p?.mp ?? 0)}/${p?.maxMp ?? 0}` },
-          { label: "EXP", pct: expPct, color: "#f0b429", text: `${player.exp}/${state.expToNext}` },
-        ].map((b) => (
-          <div key={b.label} className="flex items-center gap-1">
-            <span className="w-6 text-[9px] font-black">{b.label}</span>
-            <div className="relative h-2.5 flex-1 overflow-hidden rounded-full border-2 sm:h-3 border-[#2f2a3b] bg-[#d9d2c3]">
-              <div className="h-full transition-[width] duration-150" style={{ width: `${b.pct * 100}%`, background: b.color }} />
-              <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black leading-none sm:text-[9px] text-white [text-shadow:0_0_2px_#2f2a3b,0_0_2px_#2f2a3b]">{b.text}</span>
-            </div>
+      {/* left column: name, level, HP / MP / EXP, then hidden-skill hints, the dungeon room and what just happened */}
+      <div className="pointer-events-none absolute left-2 top-2 flex w-[min(300px,40vw)] flex-col">
+        <div className="rounded-xl border-[3px] border-[#2f2a3b] bg-[#fdf6e3]/95 px-2 py-1 text-[#2f2a3b] shadow-[0_3px_0_#2f2a3b]">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-xs font-black sm:text-sm">{player.name}</span>
+            <span className="shrink-0 text-[10px] font-bold sm:text-[11px]">
+              Lv {player.level} · {state.className} · {player.gold}g
+            </span>
           </div>
-        ))}
-        
+          {[
+            { label: "HP", pct: hpPct, color: "#e0533d", text: `${Math.max(0, Math.round(p?.hp ?? 0))}/${p?.maxHp ?? 0}` },
+            { label: "MP", pct: mpPct, color: "#3f8fd9", text: `${Math.round(p?.mp ?? 0)}/${p?.maxMp ?? 0}` },
+            { label: "EXP", pct: expPct, color: "#f0b429", text: `${player.exp}/${state.expToNext}` },
+          ].map((b) => (
+            <div key={b.label} className="flex items-center gap-1">
+              <span className="w-6 text-[9px] font-black">{b.label}</span>
+              <div className="relative h-2.5 flex-1 overflow-hidden rounded-full border-2 sm:h-3 border-[#2f2a3b] bg-[#d9d2c3]">
+                <div className="h-full transition-[width] duration-150" style={{ width: `${b.pct * 100}%`, background: b.color }} />
+                <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black leading-none sm:text-[9px] text-white [text-shadow:0_0_2px_#2f2a3b,0_0_2px_#2f2a3b]">{b.text}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <HintStrip hints={state.hints} />
+        {e?.run && (
+          <div className="mt-1 w-fit rounded-lg bg-black/45 px-2 py-1 text-[11px] font-bold text-white">
+            {e.run.cleared ? "Hollow cleared!" : `Room ${Math.min(e.run.room + 1, e.run.totalRooms)} of ${e.run.totalRooms}`}
+          </div>
+        )}
+        <div className="mt-1 flex flex-col gap-1">
+          {toasts.map((t) => (
+            <div key={t.id} className="w-fit max-w-[60vw] rounded-md bg-black/55 px-2 py-0.5 text-xs font-bold" style={{ color: t.color }}>
+              {t.text}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* top right: potion and menu */}
@@ -715,28 +730,12 @@ export default function SideGame({
         </div>
       )}
 
-      {/* dungeon progress */}
-      {e?.run && (
-        <div className="pointer-events-none absolute left-2 top-[84px] rounded-lg bg-black/45 px-2 py-1 text-[11px] font-bold text-white">
-          {e.run.cleared ? "Hollow cleared!" : `Room ${Math.min(e.run.room + 1, e.run.totalRooms)} of ${e.run.totalRooms}`}
-        </div>
-      )}
-
       {/* place name */}
       {banner && (
         <div className="pointer-events-none absolute left-1/2 top-[30%] -translate-x-1/2 rounded-2xl border-4 border-[#2f2a3b] bg-[#fdf6e3] px-6 py-2 text-xl font-black text-[#2f2a3b] shadow-[0_4px_0_#2f2a3b]">
           {banner}
         </div>
       )}
-
-      {/* what just happened */}
-      <div className="pointer-events-none absolute left-2 top-[110px] flex flex-col gap-1">
-        {toasts.map((t) => (
-          <div key={t.id} className="w-fit max-w-[60vw] rounded-md bg-black/55 px-2 py-0.5 text-xs font-bold" style={{ color: t.color }}>
-            {t.text}
-          </div>
-        ))}
-      </div>
 
       <TouchControls
         engine={e}

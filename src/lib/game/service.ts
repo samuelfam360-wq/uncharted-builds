@@ -20,7 +20,7 @@ import { ITEMS, MONSTERS, ZONES } from "./data/world";
 import { findUnlocks, type BattleSummary } from "./rules";
 import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport, type ReportHit } from "./live";
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
-import { describeCondition, revealHints } from "./reveal";
+import { describeCondition, REVEAL_AT, revealHints } from "./reveal";
 import { learnTrait, setTraits, BOND_GAIN, addBond, addOutTime, fullBondPets, heartsOf, BREED_LEVEL, BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, isBreed, speciesParts, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, activePets, summonLimit, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
 import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type Counters, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
@@ -177,12 +177,12 @@ export async function getState(store: GameStore, playerId: string) {
     summonLimit: summonLimit(d.passive),
     breeding: { level: BREED_LEVEL, tamingLevel: BREED_TAMING_LEVEL, tamingOk: masteryLevel(counters[masteryKey("taming")] ?? 0) >= BREED_TAMING_LEVEL },
     firstPetChoices: canChooseFirstPet(player) ? FIRST_PET_CHOICES.map((id) => ({ species: id, name: speciesName(id) })) : [],
-    // boss eggs you carry: how to hatch one stays hidden until you're 80% of the way there
+    // boss eggs you carry: how to hatch one stays hidden until you're halfway there (same as hidden skills)
     eggs: Object.entries(BOSS_EGGS)
       .filter(([boss]) => counters[eggKey(boss)])
       .map(([boss, egg]) => {
         const pct = Math.min(1, (counters[eggSwampKey(boss)] ?? 0) / EGG_SWAMP_MS);
-        const shown = pct >= 0.8;
+        const shown = pct >= REVEAL_AT;
         return {
           boss,
           name: egg.name,

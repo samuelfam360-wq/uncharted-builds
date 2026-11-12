@@ -961,7 +961,7 @@ export class World3D {
         ctx.fillText(info.name, s.x, s.y + 0.5 * k);
       }
     }
-    // monsters: wind-up warnings, stuns, HP bars, status dots
+    // monsters, top to bottom: wind-up warning, status dots, name, HP bar
     for (const m of e.monsters) {
       if (m.state === "dead" || far(m.x, m.z)) continue;
       const look = MONSTER_LOOKS[m.id];
@@ -973,22 +973,24 @@ export class World3D {
         ctx.strokeStyle = "#2f2a3b";
         ctx.lineWidth = 3 * k;
         ctx.beginPath();
-        ctx.arc(s.x, s.y - 22 * k, 13 * k, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y - 44 * k, 13 * k, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = "#fff";
         ctx.font = font(18);
-        ctx.fillText("!", s.x, s.y - 21 * k);
+        ctx.fillText("!", s.x, s.y - 43 * k);
       }
       if (m.state === "stunned") {
         for (let i = 0; i < 3; i++) {
           const a = now / 200 + (i * Math.PI * 2) / 3;
           ctx.fillStyle = "#ffe066";
           ctx.beginPath();
-          ctx.arc(s.x + Math.cos(a) * 20 * k, s.y - 8 * k + Math.sin(a) * 6 * k, 5 * k, 0, Math.PI * 2);
+          ctx.arc(s.x + Math.cos(a) * 20 * k, s.y - 26 * k + Math.sin(a) * 6 * k, 5 * k, 0, Math.PI * 2);
           ctx.fill();
         }
       }
+      // the name (a boss's name is on its big bar at the top instead)
+      if (!MONSTERS[m.id].isBoss) label(MONSTERS[m.id].name, { x: s.x, y: s.y - 11 * k }, "#ffffff", 11);
       if (now < m.showHpUntil && !MONSTERS[m.id].isBoss) {
         const w = Math.max(46, look.body.w * 0.8) * k;
         ctx.fillStyle = "#2f2a3b";
@@ -1001,7 +1003,7 @@ export class World3D {
       marks.forEach((st, i) => {
         ctx.fillStyle = st === "poison" ? "#a45cff" : st === "burn" ? "#ff8a3d" : st === "slow" ? "#5fb3ff" : "#ffd34d";
         ctx.beginPath();
-        ctx.arc(s.x - (marks.length - 1) * 7 * k + i * 14 * k, s.y - 10 * k, 5 * k, 0, Math.PI * 2);
+        ctx.arc(s.x - (marks.length - 1) * 7 * k + i * 14 * k, s.y - 26 * k, 5 * k, 0, Math.PI * 2);
         ctx.fill();
       });
     }

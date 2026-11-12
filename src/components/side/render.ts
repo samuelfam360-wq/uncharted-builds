@@ -491,18 +491,30 @@ function drawMonsterAt(ctx: Ctx, m: Monster, now: number) {
   // wind-up warning
   if (m.state === "windup") {
     const r = 13;
-    outlined(ctx, ellipse(0, top - 22, r, r), MONSTERS[m.id].attacks[0].name === m.attack?.name ? "#ff6b5e" : "#ffcf3d", 4);
+    outlined(ctx, ellipse(0, top - 46, r, r), MONSTERS[m.id].attacks[0].name === m.attack?.name ? "#ff6b5e" : "#ffcf3d", 4);
     ctx.fillStyle = "#fff";
     ctx.font = "900 20px ui-rounded, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("!", 0, top - 21);
+    ctx.fillText("!", 0, top - 45);
   }
   if (m.state === "stunned") {
     for (let i = 0; i < 3; i++) {
       const a = now / 200 + (i * Math.PI * 2) / 3;
-      outlined(ctx, ellipse(Math.cos(a) * 22, top - 10 + Math.sin(a) * 6, 5, 5), "#ffe066", 2);
+      outlined(ctx, ellipse(Math.cos(a) * 22, top - 30 + Math.sin(a) * 6, 5, 5), "#ffe066", 2);
     }
+  }
+  // the name, over the HP bar (a boss's name is on its big bar at the top instead)
+  if (m.state !== "dead" && !MONSTERS[m.id].isBoss) {
+    ctx.font = "900 12px ui-rounded, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#2f2a3b";
+    ctx.strokeText(MONSTERS[m.id].name, 0, top - 14);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(MONSTERS[m.id].name, 0, top - 14);
   }
   // HP bar after it's been hit
   if (m.state !== "dead" && now < m.showHpUntil && !MONSTERS[m.id].isBoss) {
@@ -516,7 +528,7 @@ function drawMonsterAt(ctx: Ctx, m: Monster, now: number) {
   marks.forEach((k, i) => {
     ctx.fillStyle = k === "poison" ? "#a45cff" : k === "burn" ? "#ff8a3d" : k === "slow" ? "#5fb3ff" : "#ffd34d";
     ctx.beginPath();
-    ctx.arc(-((marks.length - 1) * 7) + i * 14, top - 16, 5, 0, Math.PI * 2);
+    ctx.arc(-((marks.length - 1) * 7) + i * 14, top - 30, 5, 0, Math.PI * 2);
     ctx.fill();
   });
   ctx.restore();

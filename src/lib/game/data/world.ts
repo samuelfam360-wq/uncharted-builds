@@ -83,7 +83,7 @@ export const MONSTERS: Record<string, MonsterDef> = {
     id: "moss_golem",
     name: "Moss Golem",
     type: "golem",
-    stats: { HP: 120, STR: 20, VIT: 40, AGI: 1, DEX: 8, INT: 3 },
+    stats: { HP: 120, STR: 20, VIT: 12, AGI: 1, DEX: 8, INT: 3 },
     exp: 40,
     gold: 15,
     attacks: [basic(), { name: "Crushing Fist", weight: 1, multiplier: 1.6, element: "physical", status: { type: "slow", chance: 0.5, turns: 3 } }],
