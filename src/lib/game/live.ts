@@ -217,6 +217,7 @@ export interface LiveReport {
   zeroHits: number;
   statuses: StatusType[]; // statuses you received
   swampTicks: number;
+  swampMs?: number; // time spent standing in the swamp (carrying a boss egg hatches it)
   inSwamp: boolean; // kill: the fight happened in the swamp
   minHpPct: number;
   hp: number;
@@ -312,6 +313,7 @@ export function cleanReport(body: unknown): LiveReport {
     zeroHits: num(b.zeroHits, 100000),
     statuses: Array.isArray(b.statuses) ? b.statuses.filter((s): s is StatusType => typeof s === "string" && STATUS_SET.has(s)).slice(0, 2000) : [],
     swampTicks: num(b.swampTicks, 100000),
+    swampMs: num(b.swampMs, 1_000_000),
     inSwamp: b.inSwamp === true,
     minHpPct: typeof b.minHpPct === "number" && Number.isFinite(b.minHpPct) ? Math.max(0, Math.min(1, b.minHpPct)) : 1,
     hp: num(b.hp),

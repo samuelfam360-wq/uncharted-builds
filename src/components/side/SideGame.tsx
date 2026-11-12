@@ -28,6 +28,7 @@ interface LiveResult {
   log: string[];
   unlocks: UnlockNotice[];
   tamed: { name: string } | null;
+  egg: string | null;
 }
 
 type QueueItem = { r: LiveReport };
@@ -192,7 +193,7 @@ export default function SideGame({
         for (const line of res.log) toast(line, "#ffffff");
         if (res.levelUp) adoptNext.current = true;
         if (res.unlocks.length) onUnlocks(res.unlocks);
-        if (res.rewards || res.levelUp || res.unlocks.length || res.tamed || item.r.type === "death") await refresh();
+        if (res.rewards || res.levelUp || res.unlocks.length || res.tamed || res.egg || item.r.type === "death") await refresh();
       } catch (e) {
         const status = (e as { status?: number }).status;
         if (status && status < 500) {

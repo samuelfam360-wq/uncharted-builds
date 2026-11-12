@@ -20,8 +20,26 @@ export const TAME_HP_SHARE = 0.3;
 export const PET_ATTACK_MS = 1000;
 /** Pet points: from kills made while the pet is out. They will switch on pet skills. */
 export const PET_POINTS = { kill: 1, boss: 10 } as const;
-/** Each stat can grow to this many times the species' own number (bosses differ, later). */
+/** Each stat can grow to this many times the species' own number (bosses differ: see below). */
 export const PET_CAP_MULT = 5;
+/** A boss pet grows up to this share of the real boss's stats... */
+export const BOSS_PET_CAP = 0.5;
+/** ...starting from this share as a level 1 baby. */
+export const BOSS_PET_START = 0.1;
+
+/** Boss eggs: beat the boss alone within this time to get its egg (once per boss). */
+export const BOSS_EGG_MS = 5 * 60_000;
+/** Mirefang's Egg hatches after this much time carried through the poison swamp... */
+export const EGG_SWAMP_MS = 10 * 60_000;
+/** ...for someone with at least this Taming mastery level. */
+export const EGG_TAMING_LEVEL = 2;
+/** The bosses that leave an egg, and its name. */
+export const BOSS_EGGS: Record<string, { name: string; hatchText: string }> = {
+  mirefang: { name: "Mirefang's Egg", hatchText: "Carry it through the poison swamp for 10 minutes in total" },
+};
+export const eggKey = (boss: string) => `egg_${boss}`; // 1 while you carry it
+export const eggGotKey = (boss: string) => `egg_got_${boss}`; // 1 once you've ever had it
+export const eggSwampKey = (boss: string) => `egg_swamp_${boss}`; // ms carried through the swamp
 
 /** Monsters that can be tamed: every one that isn't a boss. */
 export const TAMEABLE = Object.values(MONSTERS)
@@ -61,15 +79,29 @@ export function newPet(species: string, id: string, now = new Date()): Pet {
   };
 }
 
+/** A level 1 pet's own numbers: the species' stats (a boss baby starts at a share of the boss's). */
+export function petBase(species: string): Record<PetStat, number> {
+  const m = MONSTERS[species];
+  const out = {} as Record<PetStat, number>;
+  for (const k of PET_STATS) {
+    const v = m?.stats[k] ?? 0;
+    out[k] = m?.isBoss ? Math.max(k === "HP" ? 1 : 0, Math.round(v * BOSS_PET_START)) : v;
+  }
+  if (!m) out.HP = 1;
+  return out;
+}
+
 /** The most a stat can reach for this species. */
 export function petCap(species: string, stat: PetStat): number {
-  const base = MONSTERS[species]?.stats[stat] ?? 0;
-  return Math.max(10, base * PET_CAP_MULT);
+  const m = MONSTERS[species];
+  const v = m?.stats[stat] ?? 0;
+  if (m?.isBoss) return Math.floor(v * BOSS_PET_CAP);
+  return Math.max(10, v * PET_CAP_MULT);
 }
 
 /** A pet's stats: its species' own numbers plus the points you placed. */
 export function petStats(p: Pet): Record<PetStat, number> {
-  const base = MONSTERS[p.species]?.stats ?? { HP: 1, STR: 0, VIT: 0, AGI: 0, DEX: 0, INT: 0 };
+  const base = petBase(p.species);
   const out = {} as Record<PetStat, number>;
   for (const k of PET_STATS) out[k] = Math.min(petCap(p.species, k), (base[k] ?? 0) + (p.stats[k] ?? 0));
   return out;
@@ -110,7 +142,7 @@ export function addPetPoints(p: Pet, alloc: Partial<Record<string, number>>) {
     const n = Math.floor(Number(v));
     if (!Number.isFinite(n) || n < 0) throw new GameError("Points must be whole numbers");
     const stat = k as PetStat;
-    const base = MONSTERS[p.species]?.stats[stat] ?? 0;
+    const base = petBase(p.species)[stat];
     if (base + next[stat] + n > petCap(p.species, stat)) throw new GameError(`${stat} can't go past ${petCap(p.species, stat)} for a ${speciesName(p.species)}`);
     next[stat] += n;
     total += n;
