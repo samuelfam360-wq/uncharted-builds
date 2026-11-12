@@ -3,6 +3,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { GameError } from "./game/character";
+import { getState } from "./game/service";
+import { getStore } from "./store";
 
 export const PLAYER_COOKIE = "ub_player";
 export const ADMIN_COOKIE = "ub_admin";
@@ -18,7 +20,15 @@ export function handle<T>(fn: (body: any) => Promise<T>) { // eslint-disable-lin
   return async (req: Request) => {
     try {
       const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
-      return NextResponse.json((await fn(body)) ?? { ok: true });
+      const out = (await fn(body)) ?? { ok: true };
+      // menu actions ask for the new state in the same answer: one trip instead of two
+      if (body?.withState === true && typeof out === "object" && !Array.isArray(out)) {
+        const state = await currentPlayerId()
+          .then((id) => getState(getStore(), id))
+          .catch(() => undefined);
+        if (state) return NextResponse.json({ ...out, state });
+      }
+      return NextResponse.json(out);
     } catch (e) {
       if (e instanceof GameError) return NextResponse.json({ error: e.message }, { status: e.status });
       console.error(e);

@@ -75,7 +75,10 @@ export default function Game() {
         const u = (r as { unlocks?: UnlockNotice[] })?.unlocks;
         if (u?.length) setUnlocks((q) => [...q, ...u]);
         sync.current?.adopt();
-        await refresh();
+        // the answer carries the new state (withState): no second trip
+        const s = (r as { state?: GameState })?.state;
+        if (s) setState(s);
+        else await refresh();
         return r;
       } catch (e) {
         setError((e as Error).message);
@@ -160,7 +163,7 @@ export default function Game() {
                   <button
                     className={`btn px-2 py-1 text-xs ${equipped ? "border-gold text-gold" : ""}`}
                     disabled={busy || equipped || (!w.owned && player.gold < state.weaponPrice)}
-                    onClick={() => run(() => api("/api/town", { action: "weapon", weapon: w.type }))}
+                    onClick={() => run(() => api("/api/town", { action: "weapon", weapon: w.type, withState: true }))}
                   >
                     {equipped ? "Equipped" : w.owned ? "Equip" : `Buy · ${state.weaponPrice}g`}
                   </button>
