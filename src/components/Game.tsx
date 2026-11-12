@@ -1,10 +1,20 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UnlockNotice, getState } from "@/lib/game/service";
 import { api } from "@/lib/client";
 import SideGame from "./side/SideGame";
+
+// The 3D game loads only when it's used (it brings three.js with it).
+const Game3D = dynamic(() => import("./three/Game3D"), {
+  ssr: false,
+  loading: () => <div className="flex h-full items-center justify-center text-lg font-bold text-white">Loading 3D…</div>,
+});
+
+type View = "3d" | "2d";
+const VIEW_KEY = "ub-view";
 import { InputBus, useButtons, useKeyboard } from "./world/input";
 import MenuPanels from "./world/MenuPanels";
 
@@ -42,6 +52,28 @@ export default function Game() {
   const bus = useMemo(() => new InputBus(), []);
   useKeyboard(bus);
   const sync = useRef<{ flush: () => Promise<void>; adopt: () => void } | null>(null);
+  // 3D is the main view; the 2D side view stays one tap away
+  const [view, setView] = useState<View | null>(null);
+  useEffect(() => {
+    let v: View = "3d";
+    try {
+      if (localStorage.getItem(VIEW_KEY) === "2d") v = "2d";
+    } catch {
+      // storage may be blocked
+    }
+    setView(v);
+  }, []);
+  const switchView = useCallback(async (v: View) => {
+    // send everything first, so the other view starts from the server's numbers
+    await sync.current?.flush().catch(() => {});
+    sync.current = null;
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      // storage may be blocked
+    }
+    setView(v);
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -104,24 +136,51 @@ export default function Game() {
     sync.current = fns;
   }, []);
 
-  if (!state) {
+  if (!state || !view) {
     return <main className="flex min-h-screen items-center justify-center text-muted">{error ?? "Loading…"}</main>;
   }
   const { player } = state;
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-black">
-      <SideGame
-        state={state}
-        bus={bus}
-        paused={menuOpen || shopOpen || unlocks.length > 0}
-        refresh={refresh}
-        onMenu={() => setMenuOpen(true)}
-        onShop={() => setShopOpen(true)}
-        onUnlocks={onUnlocks}
-        onError={setError}
-        registerSync={registerSync}
-      />
+      {view === "3d" ? (
+        <Game3D
+          key="3d"
+          state={state}
+          bus={bus}
+          paused={menuOpen || shopOpen || unlocks.length > 0}
+          refresh={refresh}
+          onMenu={() => setMenuOpen(true)}
+          onShop={() => setShopOpen(true)}
+          onUnlocks={onUnlocks}
+          onError={setError}
+          registerSync={registerSync}
+          onSwitchView={() => void switchView("2d")}
+        />
+      ) : (
+        <>
+          <SideGame
+            key="2d"
+            state={state}
+            bus={bus}
+            paused={menuOpen || shopOpen || unlocks.length > 0}
+            refresh={refresh}
+            onMenu={() => setMenuOpen(true)}
+            onShop={() => setShopOpen(true)}
+            onUnlocks={onUnlocks}
+            onError={setError}
+            registerSync={registerSync}
+          />
+          <button
+            type="button"
+            className="absolute right-2 top-[60px] z-10 flex h-11 items-center justify-center rounded-xl border-[3px] border-[#2f2a3b] bg-[#fdf6e3] px-3 text-xs font-black text-[#2f2a3b] shadow-[0_3px_0_#2f2a3b] active:translate-y-[2px]"
+            onClick={() => void switchView("3d")}
+            title="Switch to the 3D world"
+          >
+            3D
+          </button>
+        </>
+      )}
 
       {error && (
         <div className="absolute left-1/2 top-24 z-50 w-[min(420px,90vw)] -translate-x-1/2 rounded-lg border border-blood/40 bg-[#2a1416]/95 px-3 py-2 text-sm text-blood" role="alert">
