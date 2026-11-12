@@ -159,13 +159,15 @@ describe("live fights", () => {
     expect(await store.getInventory(p.id)).toEqual([]);
   });
 
-  it("dying sends you home poorer and with 0 HP", async () => {
+  it("dying sends you home poorer, healed at once", async () => {
     const store = new MemoryStore();
     const p = await newHero(store);
     await game.liveEnter(store, p.id, "mirewood_fields", 0);
     const r = await game.liveReport(store, p.id, blank("mirewood_fields", { type: "death", monsterId: "thorn_wolf", hp: 0 }), seeded(), 10_000);
-    expect(r.hp).toBe(0);
     const st = await game.getState(store, p.id);
+    expect(r.hp).toBe(st.derived.maxHp);
+    expect(st.player.currentMp).toBe(st.derived.maxMp);
+    expect(r.log.join(" ")).not.toContain("Rest");
     expect(st.player.gold).toBe(Math.floor(p.gold * 0.9));
     expect((await store.getCounters(p.id)).deaths).toBe(1);
   });

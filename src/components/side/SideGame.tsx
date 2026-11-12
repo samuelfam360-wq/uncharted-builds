@@ -31,7 +31,12 @@ interface LiveResult {
   egg: string | null;
 }
 
-type QueueItem = { r: LiveReport };
+/** How long you see yourself fall before waking at the inn. */
+const RESPAWN_DELAY_MS = 700;
+
+type EnterResult = { run: { room: number; totalRooms: number; firstAttempt: boolean } | null; unlocks: UnlockNotice[] };
+/** What waits to reach the server, in order: reports, and "I walked onto a new map" between them. */
+type QueueItem = { r: LiveReport } | { enter: string; done: (res: EnterResult | null, err?: Error) => void };
 
 interface Toast {
   id: number;
@@ -181,6 +186,25 @@ export default function SideGame({
     sending.current = true;
     while (queue.current.length) {
       const item = queue.current[0];
+      if ("enter" in item) {
+        // a new map: the server learns of it in order, the player already walked on
+        try {
+          const res = await api<EnterResult>("/api/live", { type: "enter", zoneId: item.enter });
+          queue.current.shift();
+          item.done(res);
+        } catch (e) {
+          const status = (e as { status?: number }).status;
+          if (status && status < 500) {
+            queue.current.shift();
+            item.done(null, e as Error);
+          } else {
+            sending.current = false;
+            setTimeout(() => void pump(), 2500);
+            return;
+          }
+        }
+        continue;
+      }
       try {
         const res = await api<LiveResult>("/api/live", item.r);
         queue.current.shift();
@@ -220,6 +244,17 @@ export default function SideGame({
       queue.current.push({ r });
       void pump();
     },
+    [pump],
+  );
+
+  /** Tell the server about a new map, after everything sent before it. */
+  const enterZone = useCallback(
+    (zoneId: string) =>
+      new Promise<EnterResult>((resolve, reject) => {
+        engineRef.current?.flush();
+        queue.current.push({ enter: zoneId, done: (res, err) => (res ? resolve(res) : reject(err)) });
+        void pump();
+      }),
     [pump],
   );
 
@@ -337,30 +372,28 @@ export default function SideGame({
   }, []);
 
   const travel = useCallback(
-    async (to: SideMapId, x: number, row: number) => {
+    (to: SideMapId, x: number, row: number) => {
       const e = engineRef.current;
       if (!e) return false;
-      setBusy(true);
-      try {
-        await flush();
-        const res = await api<{ run: { room: number; totalRooms: number; firstAttempt: boolean } | null; unlocks: UnlockNotice[] }>("/api/live", {
-          type: "enter",
-          zoneId: SIDE_MAPS[to].zoneId,
-        });
-        e.setMap(to, x, row, res.run ? { room: res.run.room, totalRooms: res.run.totalRooms, cleared: false } : null);
-        setBanner(ZONES[SIDE_MAPS[to].zoneId].name);
-        if (res.unlocks.length) onUnlocks(res.unlocks);
-        savePos();
-        if (res.run) void refresh();
-        return true;
-      } catch (err) {
-        say({ lines: [(err as Error).message] });
+      const zone = ZONES[SIDE_MAPS[to].zoneId];
+      if (zone.kind === "dungeon" && e.player.hp <= 0) {
+        say({ lines: ["You're too hurt to go in. Rest at the inn first."] });
         return false;
-      } finally {
-        setBusy(false);
       }
+      // walk straight onto the new map; the server hears about it in order, in the background
+      const entering = enterZone(zone.id);
+      e.setMap(to, x, row, zone.kind === "dungeon" ? { room: 0, totalRooms: zone.rooms!.length, cleared: false } : null);
+      setBanner(zone.name);
+      savePos();
+      entering
+        .then((res) => {
+          if (res.unlocks.length) onUnlocks(res.unlocks);
+          if (res.run) void refresh();
+        })
+        .catch((err: Error) => say({ lines: [err.message] }));
+      return true;
     },
-    [flush, onUnlocks, refresh, savePos, say],
+    [enterZone, onUnlocks, refresh, savePos, say],
   );
 
   const rest = useCallback(async () => {
@@ -555,30 +588,20 @@ export default function SideGame({
         savePos();
       }
       // falling in a fight: wake up at the inn
-      if (e.player.dead && deathHandled !== e.player.diedAt && now - e.player.diedAt > 1800) {
+      if (e.player.dead && deathHandled !== e.player.diedAt && now - e.player.diedAt > RESPAWN_DELAY_MS) {
+        // falling in a fight: back at the inn at once, fully healed (the server agrees in the background)
         deathHandled = e.player.diedAt;
-        void (async () => {
-          setBusy(true);
-          await flush();
-          try {
-            await api("/api/live", { type: "enter", zoneId: "thornvale" });
-          } catch {
-            // the next report will try again
-          }
-          e.respawn(SIDE_INN.map, SIDE_INN.x, SIDE_INN.row, 0, e.player.mp);
-          adoptNext.current = true;
-          await refresh();
-          setBusy(false);
-          savePos();
-          setBanner("Thornvale");
-          say({
-            lines: ["You were carried back to Thornvale, a little poorer.", "Rest at the inn to recover your HP?"],
-            choices: [
-              { label: "Rest", run: () => void rest() },
-              { label: "Later", run: () => {} },
-            ],
+        const entering = enterZone("thornvale");
+        e.respawn(SIDE_INN.map, SIDE_INN.x, SIDE_INN.row, e.player.maxHp, e.player.maxMp);
+        savePos();
+        setBanner("Thornvale");
+        toast("You were carried back to Thornvale, a little poorer.", "#ffffff");
+        entering
+          .catch(() => {})
+          .finally(() => {
+            adoptNext.current = true;
+            void refresh();
           });
-        })();
       }
       if (now - lastHud > 100) {
         lastHud = now;
@@ -594,7 +617,7 @@ export default function SideGame({
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", hide);
     };
-  }, [ready, look, npcLooks, flush, refresh, rest, say, savePos]);
+  }, [ready, look, npcLooks, flush, refresh, rest, say, savePos, enterZone, toast]);
 
   // ---------- HUD ----------
 
