@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { BASE_HP, BASE_MP, HP_PER_POINT, MP_PER_POINT, STAT_INFO, WEAPONS } from "@/lib/game/constants";
-import { APPEARANCE_KEYS, APPEARANCE_OPTIONS, CLASSES, DEFAULT_APPEARANCE } from "@/lib/game/data/classes";
+import { APPEARANCE_KEYS, APPEARANCE_OPTIONS, CLASS_BODY, CLASSES, DEFAULT_APPEARANCE } from "@/lib/game/data/classes";
 import { CLASS_IDS, STAT_KEYS, type Appearance, type ClassId, type StatKey } from "@/lib/game/types";
 import { api } from "@/lib/client";
 
@@ -34,6 +34,7 @@ export default function CreateCharacter() {
   const allIn = (k: StatKey) => setStats({ ...NO_POINTS, [k]: freeTotal });
   const pickClass = (id: ClassId) => {
     setClassId(id);
+    setLook((l) => ({ ...l, body: CLASS_BODY[id] })); // a matching 3D body; the player can still change it
     setStats(NO_POINTS); // free points differ between classes, so start the spend over
   };
 

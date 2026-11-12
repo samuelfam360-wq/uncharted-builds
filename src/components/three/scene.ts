@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { MONSTERS } from "@/lib/game/data/world";
 import { TILE3, type Map3D } from "@/lib/game/data/maps3d";
 import type { Look } from "../side/hero";
+import { loadPack, makeRiggedHero, onPackReady, packReady } from "./rigged";
 import { MONSTER_LOOKS } from "../side/sprites";
 import { WEAPON_FEEL, type Engine3D, type Monster, type PetUnit } from "./engine3d";
 import {
@@ -40,6 +41,11 @@ const PLAYER_H = 82;
 const toScene = (x: number, y: number, z: number, out = new THREE.Vector3()) => out.set(x * U, -y * U, z * U);
 
 /** Give a model materials of its own (so it can fade or tint) and return them. */
+/** The animated pack character when it has loaded, else the code-built one. */
+function heroFor(look: Look): HeroModel {
+  return makeRiggedHero(look) ?? makeHero(look);
+}
+
 function ownMaterials(root: THREE.Object3D): THREE.MeshToonMaterial[] {
   const out: THREE.MeshToonMaterial[] = [];
   const seen = new Map<THREE.Material, THREE.MeshToonMaterial>();
@@ -115,6 +121,9 @@ export class World3D {
   private occluders: { obj: THREE.Object3D; x: number; z: number; r: number }[] = [];
   private overlay: CanvasRenderingContext2D;
   private tmp = new THREE.Vector3();
+  private npcsStale = false;
+  private heroBody: string | undefined;
+  private offPack: () => void;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -125,6 +134,14 @@ export class World3D {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.overlay = overlayCanvas.getContext("2d")!;
+    // the animated characters: until they load, the simple code-built ones are shown
+    void loadPack();
+    this.offPack = onPackReady(() => {
+      this.heroLook = "";
+      this.npcsStale = true;
+      for (const c of this.clones) this.dyn.remove(c.model.root);
+      this.clones = [];
+    });
 
     this.hemi = new THREE.HemisphereLight("#d8efff", "#86a86a", 1.5);
     this.scene.add(this.hemi);
@@ -589,10 +606,11 @@ export class World3D {
   }
 
   private syncNpcs(e: Engine3D, info: DrawInfo, now: number) {
-    if (this.npcs.length !== e.map.npcs.length) {
+    if (this.npcs.length !== e.map.npcs.length || this.npcsStale || this.npcs.some((v, i) => v.id !== e.map.npcs[i]?.id)) {
+      this.npcsStale = false;
       for (const v of this.npcs) this.dyn.remove(v.model.root);
       this.npcs = e.map.npcs.map((n) => {
-        const model = makeHero(info.npcLooks[n.id]);
+        const model = heroFor(info.npcLooks[n.id]);
         model.set("unarmed");
         model.root.position.set(n.x, 0, n.z);
         this.dyn.add(model.root);
@@ -612,15 +630,16 @@ export class World3D {
   }
 
   private syncHero(e: Engine3D, info: DrawInfo, now: number) {
-    const key = JSON.stringify(info.look);
+    const key = JSON.stringify(info.look) + packReady();
     if (!this.hero || key !== this.heroLook) {
       if (this.hero) this.dyn.remove(this.hero.root);
-      this.hero = makeHero(info.look);
+      this.hero = heroFor(info.look);
       this.heroMats = ownMaterials(this.hero.root);
       this.heroLook = key;
       this.dyn.add(this.hero.root);
     }
     const h = this.hero;
+    this.heroBody = info.look.body;
     const p = e.player;
     h.set(e.weapon);
     toScene(p.x, p.y, p.z, h.root.position);
@@ -740,7 +759,7 @@ export class World3D {
 
   private syncClones(e: Engine3D, now: number) {
     while (this.clones.length < e.clones.length) {
-      const model = makeHero({ skin: "#8a7bff", hair: "#5a4ad0", eyes: "#ffffff", shirt: "#6b5ae0", hairStyle: "Short", female: false, build: "Average" });
+      const model = heroFor({ skin: "#8a7bff", hair: "#5a4ad0", eyes: "#ffffff", shirt: "#6b5ae0", hairStyle: "Short", female: false, build: "Average", body: this.heroBody });
       const mats = ownMaterials(model.root);
       for (const m of mats) {
         m.transparent = true;
@@ -968,6 +987,7 @@ export class World3D {
   }
 
   dispose() {
+    this.offPack();
     this.disposeGroup(this.mapGroup);
     this.renderer.dispose();
   }

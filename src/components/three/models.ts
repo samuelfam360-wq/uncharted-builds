@@ -317,7 +317,7 @@ export function makeHero(L: Look): HeroModel {
 }
 
 /** How each weapon is held and used. */
-const WEAPON_LOOK: Record<WeaponType, "swing" | "thrust" | "shoot" | "punch"> = {
+export const WEAPON_LOOK: Record<WeaponType, "swing" | "thrust" | "shoot" | "punch"> = {
   sword: "swing",
   daggers: "swing",
   hammer: "swing",
@@ -332,7 +332,7 @@ const WEAPON_LOOK: Record<WeaponType, "swing" | "thrust" | "shoot" | "punch"> = 
   unarmed: "punch",
 };
 
-function makeWeapon(w: WeaponType): { right?: THREE.Object3D; left?: THREE.Object3D } {
+export function makeWeapon(w: WeaponType): { right?: THREE.Object3D; left?: THREE.Object3D } {
   const metal = toon("#dfe6f0");
   const wood = toon("#9a6a3c");
   const gold = toon("#f5c542");
@@ -704,48 +704,103 @@ export function makeMonster(species: string): MonsterModel {
     if (f === "shine" && bodyId !== "green_slime") rig.add(at(piece(sphere(0.5, 12), toon("#bff5c4", { opacity: 0.55 }), { outline: false, shadow: false }), 0, top.y, top.z, [W * 0.5, H * 0.2, W * 0.5]));
   }
 
+  const st = { lastT: -1, pose: "", since: 0, y: 0, sx: 1, sy: 1, rx: 0, z: 0, jaw: 0, leg: 0 };
   const model: MonsterModel = {
     root,
     mats,
     height: H,
     animate(pose, t, walkT) {
-      rig.position.set(0, 0, 0);
-      rig.rotation.set(0, 0, 0);
-      rig.scale.set(1, 1, 1);
-      if (jaw) jaw.rotation.x = bodyId === "bog_toad" ? 0 : 0;
-      for (const l of legs) l.rotation.x = 0;
+      // Smooth motion: work out where every part wants to be, then ease toward it,
+      // so moves blend instead of snapping. Hops stretch going up and squash on landing.
+      const dt = st.lastT < 0 ? 0 : Math.min(0.1, Math.max(0, (t - st.lastT) / 1000));
+      st.lastT = t;
+      if (pose !== st.pose) {
+        st.pose = pose;
+        st.since = t;
+      }
+      const age = t - st.since; // ms in this pose
+      const hopper = bodyId === "green_slime" || bodyId === "bog_toad" || bodyId === "horned_rabbit";
+      const T = { y: 0, sx: 1, sy: 1, rx: 0, z: 0, jaw: 0, leg: 0 };
+      const breathe = Math.sin(t / 420);
       const flap = Math.sin(t / 70);
       if (wingL && wingR) {
-        wingL.rotation.z = flap * 0.6;
-        wingR.rotation.z = -flap * 0.6;
+        const f = pose === "windup" ? Math.sin(t / 40) : flap;
+        wingL.rotation.z = f * 0.7;
+        wingR.rotation.z = -f * 0.7;
       }
       if (pose === "dead") {
-        rig.scale.set(1.15, 0.25, 1.15);
-        return;
-      }
-      if (pose === "walk" || pose === "rest") {
-        const s = pose === "walk" ? Math.sin(walkT / 90) : 0;
-        if (bodyId === "green_slime" || bodyId === "bog_toad" || bodyId === "horned_rabbit") {
-          // hop
-          const hop = pose === "walk" ? Math.abs(Math.sin(walkT / 140)) : 0;
-          rig.position.y = hop * H * 0.35;
-          const sq = pose === "walk" ? 1 - hop * 0.12 : 1 + Math.sin(t / 300) * 0.04;
-          rig.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
+        // a squish, then flat
+        const p = Math.min(1, age / 380);
+        const k = 1 - Math.pow(1 - p, 3);
+        T.sy = 1 - 0.75 * k;
+        T.sx = 1 + 0.2 * k;
+        T.rx = bodyId === "mire_bat" ? 0 : -0.15 * k;
+      } else if (pose === "rest") {
+        T.sy = 1 + breathe * 0.035;
+        T.sx = 1 - breathe * 0.018;
+      } else if (pose === "walk") {
+        if (hopper) {
+          // one hop: crouch, stretch up, land with a squash
+          const ph = (walkT / 520) % 1;
+          if (ph < 0.15) {
+            const c = Math.sin((ph / 0.15) * Math.PI);
+            T.sy = 1 - c * 0.14;
+            T.sx = 1 + c * 0.08;
+          } else if (ph < 0.85) {
+            const a = (ph - 0.15) / 0.7;
+            T.y = 4 * a * (1 - a) * H * 0.4;
+            const up = a < 0.5 ? 1 - a * 2 : 0;
+            T.sy = 1 + up * 0.14;
+            T.sx = 1 - up * 0.07;
+            T.rx = (a - 0.5) * 0.3;
+          } else {
+            const c = Math.sin(((ph - 0.85) / 0.15) * Math.PI);
+            T.sy = 1 - c * 0.18;
+            T.sx = 1 + c * 0.1;
+          }
         } else {
-          legs.forEach((l, i) => (l.rotation.x = s * (i % 2 ? 0.6 : -0.6)));
-          rig.position.y = Math.abs(s) * H * 0.04;
-          if (pose === "rest") rig.scale.y = 1 + Math.sin(t / 420) * 0.02;
+          const s = Math.sin(walkT / 90);
+          T.leg = s * 0.7;
+          T.y = Math.abs(Math.cos(walkT / 90)) * H * 0.05;
+          T.sy = 1 + Math.abs(s) * 0.03;
+          T.rx = 0.06;
         }
       } else if (pose === "windup") {
-        rig.scale.set(1.1, 0.85, 1.1);
-        rig.rotation.x = -0.15;
-        if (jaw) jaw.rotation.x = -0.4;
+        // gathers itself: squashes down, leans back, mouth opens; a shiver as it peaks
+        const p = Math.min(1, age / 450);
+        const k = 1 - Math.pow(1 - p, 2);
+        const shiver = p > 0.6 ? Math.sin(t / 22) * 0.02 : 0;
+        T.sy = 1 - 0.18 * k;
+        T.sx = 1 + 0.12 * k + shiver;
+        T.rx = -0.22 * k;
+        T.z = -0.06 * k;
+        T.jaw = -0.45 * k;
       } else if (pose === "attack") {
-        rig.position.z = 0.15 + W * 0.1;
-        rig.scale.set(0.95, 1.1, 1.05);
-        rig.rotation.x = 0.2;
-        if (jaw) jaw.rotation.x = 0.3;
+        // a fast lunge, then settle back
+        const p = Math.min(1, age / 240);
+        const out = p < 0.3 ? p / 0.3 : 1 - (p - 0.3) / 0.7;
+        const e = Math.sin((out * Math.PI) / 2);
+        T.z = (0.2 + W * 0.15) * e;
+        T.sy = 1 + 0.12 * e;
+        T.sx = 1 - 0.06 * e;
+        T.rx = 0.28 * e;
+        T.jaw = 0.35 * e;
       }
+      // ease toward the target: quick for strikes, softer for the rest
+      const speed = pose === "attack" || pose === "dead" ? 40 : pose === "windup" ? 20 : 14;
+      const a = dt === 0 ? 1 : 1 - Math.exp(-speed * dt);
+      st.y += (T.y - st.y) * (pose === "walk" ? 1 : a);
+      st.sx += (T.sx - st.sx) * a;
+      st.sy += (T.sy - st.sy) * a;
+      st.rx += (T.rx - st.rx) * a;
+      st.z += (T.z - st.z) * a;
+      st.jaw += (T.jaw - st.jaw) * a;
+      st.leg += (T.leg - st.leg) * (pose === "walk" ? 1 : a);
+      rig.position.set(0, st.y, st.z);
+      rig.rotation.set(st.rx, 0, 0);
+      rig.scale.set(st.sx, st.sy, st.sx);
+      if (jaw) jaw.rotation.x = st.jaw;
+      legs.forEach((l, i) => (l.rotation.x = st.leg * (i % 2 ? 1 : -1)));
     },
   };
   return model;

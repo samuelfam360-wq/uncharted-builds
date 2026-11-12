@@ -32,6 +32,26 @@ export const APPEARANCE_OPTIONS: Record<keyof Appearance, { label: string; optio
   hairColor: { label: "Hair color", options: ["Black", "Brown", "Blonde", "Red", "White", "Silver", "Blue", "Green", "Pink"] },
   eyeColor: { label: "Eye color", options: ["Brown", "Black", "Blue", "Green", "Gray", "Amber", "Red", "Violet"] },
   build: { label: "Body build", options: ["Slim", "Average", "Strong"] },
+  body: { label: "3D body", options: ["Knight", "Barbarian", "Mage", "Rogue", "Hooded Rogue"] },
+};
+
+/** The animated bodies in 3D (from the free KayKit Adventurers pack). */
+export const BODY_OPTIONS = ["Knight", "Barbarian", "Mage", "Rogue", "Hooded Rogue"] as const;
+
+/** The 3D body for players who haven't picked one (made before bodies existed). */
+export const CLASS_BODY: Record<ClassId, (typeof BODY_OPTIONS)[number]> = {
+  swordsman: "Knight",
+  tanker: "Knight",
+  lancer: "Knight",
+  blacksmith: "Barbarian",
+  monk: "Barbarian",
+  mage: "Mage",
+  saint: "Mage",
+  tamer: "Mage",
+  assassin: "Hooded Rogue",
+  ranger: "Rogue",
+  gunslinger: "Rogue",
+  free: "Rogue",
 };
 
 export const APPEARANCE_KEYS = Object.keys(APPEARANCE_OPTIONS) as (keyof Appearance)[];
@@ -43,6 +63,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   hairColor: "Black",
   eyeColor: "Brown",
   build: "Average",
+  body: "Knight",
 };
 
 /** Accept only known options; anything missing or unknown falls back to the default. */
@@ -53,6 +74,8 @@ export function cleanAppearance(input: unknown): Appearance {
     const v = src[k];
     if (typeof v === "string" && APPEARANCE_OPTIONS[k].options.includes(v)) out[k] = v;
   }
+  // no body picked: the 3D view gives one that matches the class
+  if (!(typeof src.body === "string" && APPEARANCE_OPTIONS.body.options.includes(src.body))) delete out.body;
   return out;
 }
 

@@ -46,6 +46,8 @@ export interface Appearance {
   hairColor: string;
   eyeColor: string;
   build: string;
+  /** The animated body in 3D. Players made before this existed don't have one. */
+  body?: string;
 }
 
 export const STATUS_TYPES = [

@@ -3,6 +3,7 @@
 // Chibi proportions and a thick dark outline to match the art pack.
 
 import type { Appearance, ClassId, WeaponType } from "@/lib/game/types";
+import { BODY_OPTIONS, CLASS_BODY } from "@/lib/game/data/classes";
 import { OUTLINE, ellipse, outlined, poly, roundRect, shade } from "./sprites";
 
 type Ctx = CanvasRenderingContext2D;
@@ -60,6 +61,8 @@ export interface Look {
   hairStyle: string;
   female: boolean;
   build: "Slim" | "Average" | "Strong";
+  /** The animated body used in 3D (Knight, Barbarian, Mage, Rogue, Hooded Rogue). */
+  body?: string;
 }
 
 export function lookFor(a: Appearance, classId: ClassId): Look {
@@ -71,6 +74,7 @@ export function lookFor(a: Appearance, classId: ClassId): Look {
     hairStyle: a.hairStyle,
     female: a.gender === "Female",
     build: (["Slim", "Average", "Strong"].includes(a.build) ? a.build : "Average") as Look["build"],
+    body: a.body && (BODY_OPTIONS as readonly string[]).includes(a.body) ? a.body : CLASS_BODY[classId] ?? "Rogue",
   };
 }
 

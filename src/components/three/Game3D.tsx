@@ -179,7 +179,7 @@ export default function Game3D({
     const out: Record<string, Look> = {};
     for (const m of Object.values(MAPS3D))
       for (const n of m.npcs)
-        out[n.id] = { skin: n.look.skin, hair: n.look.hair, shirt: n.look.shirt, eyes: "#5a4030", hairStyle: n.look.hairStyle, female: n.look.female, build: "Average" };
+        out[n.id] = { skin: n.look.skin, hair: n.look.hair, shirt: n.look.shirt, eyes: "#5a4030", hairStyle: n.look.hairStyle, female: n.look.female, build: "Average", body: n.look.body };
     return out;
   }, []);
 
