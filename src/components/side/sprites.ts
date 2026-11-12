@@ -353,3 +353,144 @@ function drawBat(ctx: Ctx, pose: string, t: number) {
   ctx.fillRect(2, 8, 3, 4);
   ctx.restore();
 }
+
+// ---------- bred pets: one mixed monster that looks like all its parents ----------
+
+/** Each species' main colour, used to blend a mixed monster's body. */
+const SPECIES_COLOR: Record<string, string> = {
+  green_slime: "#5fd36a",
+  horned_rabbit: "#e0b98a",
+  bog_toad: "#6f8f3a",
+  thorn_wolf: "#7d8aa6",
+  mire_bat: "#6a4f8a",
+  moss_golem: "#6f8f5a",
+  mirefang: "#4a3a5a",
+};
+
+function hueOf(hex: string) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+
+/** The parts of a species: a bred one is its parents' species joined with "+". */
+const partsOf = (species: string) => species.split("+").filter((s) => MONSTER_LOOKS[s]);
+
+/** A mixed monster takes the body of its biggest parent. */
+export function bodyOf(species: string): string {
+  const parts = partsOf(species);
+  if (!parts.length) return "green_slime";
+  return parts.reduce((a, b) => (MONSTER_LOOKS[b].body.w * MONSTER_LOOKS[b].body.h > MONSTER_LOOKS[a].body.w * MONSTER_LOOKS[a].body.h ? b : a));
+}
+
+/** The look (size, flying) of any pet, bred or not. */
+export const petLookOf = (species: string) => MONSTER_LOOKS[bodyOf(species)];
+
+/** Draw a pet, feet at (0,0) facing right. A bred pet is its biggest parent's body, coloured between its parents, wearing the others' features. */
+export function drawPet(ctx: Ctx, species: string, pose: "rest" | "walk0" | "walk1" | "windup" | "attack" | "hurt" | "dead", t: number) {
+  const parts = partsOf(species);
+  if (parts.length <= 1) return drawMonster(ctx, parts[0] ?? species, pose, t);
+  const body = bodyOf(species);
+  const others = parts.filter((p) => p !== body);
+  const L = MONSTER_LOOKS[body];
+  // wings go behind the body
+  for (const o of others) if (o === "mire_bat") drawFeature(ctx, o, L.body, pose, t);
+  // the body, its colour turned halfway towards the other parents'
+  const hb = hueOf(SPECIES_COLOR[body] ?? "#888888");
+  const ho = others.reduce((n, o) => n + hueOf(SPECIES_COLOR[o] ?? "#888888"), 0) / others.length;
+  let diff = ho - hb;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+  ctx.save();
+  ctx.filter = `hue-rotate(${Math.round(diff / 2)}deg)`;
+  drawMonster(ctx, body, pose, t);
+  ctx.restore();
+  for (const o of others) if (o !== "mire_bat") drawFeature(ctx, o, L.body, pose, t);
+}
+
+/** One parent's tell-tale feature, sized to the body it sits on. */
+function drawFeature(ctx: Ctx, species: string, b: { w: number; h: number }, pose: string, t: number) {
+  const w = b.w;
+  const h = b.h;
+  ctx.save();
+  switch (species) {
+    case "green_slime": {
+      // a wobbly coat of slime with drips
+      const wob = Math.sin(t / 170) * 2;
+      ctx.globalAlpha = 0.38;
+      outlined(ctx, ellipse(0, -h * 0.5, w * 0.5 + wob, h * 0.52 - wob), "#5fd36a", 2);
+      ctx.globalAlpha = 0.55;
+      for (const [x, len] of [
+        [-w * 0.25, 9],
+        [w * 0.05, 13],
+        [w * 0.3, 7],
+      ]) {
+        outlined(ctx, ellipse(x, -h * 0.08 + len / 2, 4, len / 2 + Math.sin(t / 220 + x) * 1.5), "#5fd36a", 1.5);
+      }
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = "#ffffff";
+      ctx.fill(ellipse(-w * 0.22, -h * 0.82, 4, 7, -0.4));
+      break;
+    }
+    case "horned_rabbit": {
+      // long ears and a horn
+      outlined(ctx, ellipse(-w * 0.12, -h * 1.02, 6, 15, -0.25), "#e8d2b0", 3);
+      outlined(ctx, ellipse(w * 0.02, -h * 1.05, 6, 15, 0.15), "#e8d2b0", 3);
+      outlined(ctx, poly([w * 0.22, -h * 0.82, w * 0.42, -h * 1.32, w * 0.34, -h * 0.76]), "#f4ead2", 3);
+      break;
+    }
+    case "bog_toad": {
+      // toxic warts
+      for (const [x, y, r] of [
+        [-w * 0.22, -h * 0.62, 5],
+        [w * 0.08, -h * 0.75, 4],
+        [w * 0.24, -h * 0.45, 5],
+        [-w * 0.05, -h * 0.35, 4],
+      ]) outlined(ctx, ellipse(x, y, r, r), "#9b6fd0", 2);
+      break;
+    }
+    case "thorn_wolf": {
+      // thorns along the back
+      for (let i = 0; i < 4; i++) {
+        const x = -w * 0.3 + i * w * 0.17;
+        outlined(ctx, poly([x - 7, -h * 0.9, x, -h * 0.9 - 16 - (i % 2) * 5, x + 7, -h * 0.9]), "#5e7a3a", 2.5);
+      }
+      break;
+    }
+    case "mire_bat": {
+      // flapping wings on the back
+      const flap = pose === "walk0" || pose === "walk1" ? Math.sin(t / 90) * 0.35 : Math.sin(t / 300) * 0.15;
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.translate(-w * 0.05, -h * 0.85);
+        ctx.rotate(side * (0.35 + flap));
+        const k = Math.max(0.8, w / 75);
+        ctx.scale(k, k);
+        outlined(ctx, poly([0, 0, side * 30, -30, side * 44, -8, side * 33, -2, side * 26, 10, side * 12, 4]), "#5b4478", 2.5 / k);
+        ctx.restore();
+      }
+      break;
+    }
+    case "moss_golem": {
+      // moss and a pebble or two
+      outlined(ctx, ellipse(-w * 0.1, -h * 0.9, w * 0.22, 7), "#5f9a3f", 2.5);
+      outlined(ctx, ellipse(w * 0.2, -h * 0.55, 8, 6), "#5f9a3f", 2);
+      outlined(ctx, ellipse(-w * 0.28, -h * 0.4, 6, 5), "#9a9488", 2);
+      break;
+    }
+    case "mirefang": {
+      // a small crown
+      const top = -h * 0.95;
+      outlined(ctx, poly([-14, top + 4, -16, top - 12, -7, top - 4, 0, top - 16, 7, top - 4, 16, top - 12, 14, top + 4]), "#f5c542", 3);
+      outlined(ctx, ellipse(0, top - 5, 3, 3), "#d64b6b", 1.5);
+      break;
+    }
+  }
+  ctx.restore();
+}

@@ -21,7 +21,7 @@ import { findUnlocks, type BattleSummary } from "./rules";
 import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport, type ReportHit } from "./live";
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
 import { describeCondition, revealHints } from "./reveal";
-import { BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
+import { BREED_LEVEL, BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, isBreed, speciesParts, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
 import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
@@ -168,6 +168,7 @@ export async function getState(store: GameStore, playerId: string) {
     inventory: inventory.map((i) => ({ ...i, name: ITEMS[i.itemId]?.name ?? i.itemId, description: ITEMS[i.itemId]?.description ?? "", edible: ITEMS[i.itemId]?.edible ?? false })),
     uniqueItem: unique,
     pets: player.pets.map((p) => publicPet(p, gloryOf(d))),
+    breeding: { level: BREED_LEVEL, tamingLevel: BREED_TAMING_LEVEL, tamingOk: masteryLevel(counters[masteryKey("taming")] ?? 0) >= BREED_TAMING_LEVEL },
     firstPetChoices: canChooseFirstPet(player) ? FIRST_PET_CHOICES.map((id) => ({ species: id, name: speciesName(id) })) : [],
     // boss eggs you carry: how to hatch one stays hidden until you're 80% of the way there
     eggs: Object.entries(BOSS_EGGS)
@@ -1377,17 +1378,28 @@ export async function petAddPoints(store: GameStore, playerId: string, petId: st
   return { pet: publicPet(pet) };
 }
 
-/** Breed two of your level 50 pets: the baby (of the species you pick, one of the parents') joins you. */
-export async function breedPets(store: GameStore, playerId: string, aId: string, bId: string, species: string) {
+/** Breed two of your level 50 pets: the baby, a new mixed monster that looks like both, joins you. */
+export async function breedPets(store: GameStore, playerId: string, aId: string, bId: string) {
   const player = await petPlayer(store, playerId);
   const a = player.pets.find((p) => p.id === aId);
   const b = player.pets.find((p) => p.id === bId);
   if (!a || !b) throw new GameError("That pet isn't yours");
   const counters = await store.getCounters(playerId);
   if (masteryLevel(counters[masteryKey("taming")] ?? 0) < BREED_TAMING_LEVEL) throw new GameError(`Breeding needs Taming mastery level ${BREED_TAMING_LEVEL}`);
-  const baby = breed(a, b, species, randomUUID());
+  const baby = breed(a, b, randomUUID());
   player.pets = [...player.pets, baby];
   await store.savePlayer(player);
   await store.applyCounters(playerId, { pets_bred: { op: "inc", value: 1 } });
-  return { pet: publicPet(baby), log: [`A baby ${speciesName(species)} was born! It has ${baby.freePoints} points to place.`] };
+  const log = [`A baby ${speciesName(baby.species)} was born! It has ${baby.freePoints} points to place.`];
+  // a mixed monster made of several species is a breed, kept track of for the whole world
+  if (isBreed(baby.species)) {
+    const rec = await store.recordBreed(baby.species, speciesParts(baby.species), playerId);
+    log.push(rec.isNew ? "A new breed! No one has ever bred this monster before." : `This breed has been born ${rec.times} times so far.`);
+  }
+  return { pet: publicPet(baby), log };
+}
+
+/** Every breed made so far in the world. */
+export async function listBreeds(store: GameStore) {
+  return (await store.listBreeds()).map((b) => ({ id: b.id, name: speciesName(b.id), firstBredBy: b.firstBredByName, firstBredAt: b.firstBredAt, timesBred: b.timesBred }));
 }

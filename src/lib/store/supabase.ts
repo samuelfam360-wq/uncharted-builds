@@ -248,6 +248,25 @@ export class SupabaseStore implements GameStore {
     check(await this.db.from("unique_items").update({ level: u.level, exp: u.exp, equipped: u.equipped }).eq("id", u.id));
   }
 
+  async recordBreed(id: string, parts: string[], playerId: string) {
+    const rows: any[] = many(await this.db.rpc("record_breed", { p_id: id, p_parts: parts, p_player: playerId }));
+    return { isNew: !!rows[0]?.is_new, times: Number(rows[0]?.times ?? 1) };
+  }
+
+  async listBreeds() {
+    const rows: any[] = many(
+      await this.db.from("breeds").select("id, parts, first_bred_by, first_bred_at, times_bred, players(name)").order("first_bred_at", { ascending: false }).limit(200),
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      parts: r.parts ?? [],
+      firstBredBy: r.first_bred_by,
+      firstBredByName: r.players?.name ?? null,
+      firstBredAt: r.first_bred_at,
+      timesBred: r.times_bred,
+    }));
+  }
+
   async recentUnlocks(limit: number) {
     const rows: any[] = many(
       await this.db

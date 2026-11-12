@@ -10,6 +10,15 @@ import type {
   UnlockLogEntry,
 } from "../game/types";
 
+export interface BreedRecord {
+  id: string;
+  parts: string[];
+  firstBredBy: string | null;
+  firstBredByName: string | null;
+  firstBredAt: string;
+  timesBred: number;
+}
+
 export interface GrantOptions {
   status: "owned" | "offered";
   equipped: boolean;
@@ -47,6 +56,11 @@ export interface GameStore {
   /** Atomic server-first claim. */
   claimUniqueItem(itemId: string, playerId: string): Promise<boolean>;
   saveUniqueItem(item: UniqueItem): Promise<void>;
+
+  /** Atomic. Records one breeding of this mixed monster; says if it's new to the world. */
+  recordBreed(id: string, parts: string[], playerId: string): Promise<{ isNew: boolean; times: number }>;
+  /** Every breed made so far, newest first. */
+  listBreeds(): Promise<BreedRecord[]>;
 
   recentUnlocks(limit: number): Promise<UnlockLogEntry[]>;
   skillOwnerCounts(): Promise<Record<string, number>>;

@@ -31,6 +31,21 @@ export default function MenuPanels({
   const skill = (skillId: string, action: string) => run(() => api("/api/skills", { skillId, action }));
   const town = (body: Record<string, unknown>) => run(() => api("/api/town", body));
   const pets = (body: Record<string, unknown>) => run(() => api("/api/pets", body));
+  const [mate, setMate] = useState<{ a: string; b: string }>({ a: "", b: "" });
+  const [breedMsg, setBreedMsg] = useState<string[]>([]);
+  const [breeds, setBreeds] = useState<{ id: string; name: string; firstBredBy: string | null; timesBred: number }[] | null>(null);
+  const grown = state.pets.filter((p) => p.level >= state.breeding.level);
+  const breedNow = async () => {
+    const r = await run(() => api<{ log: string[] }>("/api/pets", { action: "breed", a: mate.a, b: mate.b }));
+    if (r) {
+      setBreedMsg(r.log);
+      setMate({ a: "", b: "" });
+    }
+  };
+  const showBreeds = async () => {
+    const r = await run(() => api<{ breeds: { id: string; name: string; firstBredBy: string | null; timesBred: number }[] }>("/api/pets", { action: "breeds" }));
+    if (r) setBreeds(r.breeds);
+  };
 
   return (
     <div className="space-y-4">
@@ -247,9 +262,58 @@ export default function MenuPanels({
                 ))}
               </div>
               {pet.freePoints > 0 && <div className="mt-1 text-[10px] text-gold">{pet.freePoints} points to place</div>}
+              {pet.parents && <div className="mt-1 text-[10px] text-muted">Bred from a {pet.parents[0]} and a {pet.parents[1]}</div>}
             </li>
           ))}
         </ul>
+
+        <div className="mt-3 rounded-lg bg-panel-2 p-2">
+          <div className="text-sm font-semibold">Breeding</div>
+          <p className="mt-1 text-xs text-muted">
+            Two pets of level {state.breeding.level} or more make a baby: a new mixed monster that looks like both. Needs Taming mastery level {state.breeding.tamingLevel}.
+          </p>
+          {!state.breeding.tamingOk ? (
+            <p className="mt-1 text-xs text-blood">Your Taming mastery isn&apos;t high enough yet.</p>
+          ) : grown.length < 2 ? (
+            <p className="mt-1 text-xs text-muted">You need two pets at level {state.breeding.level}.</p>
+          ) : (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              {(["a", "b"] as const).map((k) => (
+                <select key={k} className="rounded bg-black/30 px-1 py-0.5" value={mate[k]} onChange={(ev) => setMate({ ...mate, [k]: ev.target.value })}>
+                  <option value="">Pick a pet</option>
+                  {grown
+                    .filter((p) => p.id !== (k === "a" ? mate.b : mate.a))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} Lv {p.level}
+                      </option>
+                    ))}
+                </select>
+              ))}
+              <button className="btn px-2 py-0.5 text-xs" disabled={busy || !!battle || !mate.a || !mate.b} onClick={() => void breedNow()}>
+                Breed
+              </button>
+            </div>
+          )}
+          {breedMsg.map((l) => (
+            <p key={l} className="mt-1 text-xs text-gold">
+              {l}
+            </p>
+          ))}
+          <button className="mt-2 text-[10px] underline text-muted" onClick={() => void showBreeds()}>
+            Every breed in the world
+          </button>
+          {breeds && (
+            <ul className="mt-1 space-y-0.5 text-[10px]">
+              {breeds.length === 0 && <li className="text-muted">No one has bred a new monster yet.</li>}
+              {breeds.map((b) => (
+                <li key={b.id}>
+                  <span className="font-semibold">{b.name}</span> · first bred by {b.firstBredBy ?? "someone"} · born {b.timesBred}×
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
     )}
 

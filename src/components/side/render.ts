@@ -5,7 +5,7 @@ import { MONSTERS } from "@/lib/game/data/world";
 import { SIDE_MAPS, TILE, isLadder, isPlatform, isSolid, isSwamp, mapSize, tileAt, type BuildingDef, type SideMap, type SideMapId } from "@/lib/game/data/sidemaps";
 import { PLAYER_H, WEAPON_FEEL, type Engine, type Monster } from "./engine";
 import { drawHero, type Look, type Pose } from "./hero";
-import { MONSTER_LOOKS, OUTLINE, drawMonster, ellipse, frame, makeCanvas, outlined, poly, roundRect, shade, tintedFrame } from "./sprites";
+import { MONSTER_LOOKS, OUTLINE, drawMonster, drawPet, petLookOf, ellipse, frame, makeCanvas, outlined, poly, roundRect, shade, tintedFrame } from "./sprites";
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -296,9 +296,9 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
   // your pet
   if (e.pet) {
     const pt = e.pet;
-    const look = MONSTER_LOOKS[pt.species];
-    // a boss pet is a baby: much smaller than the real thing
-    const ps = MONSTERS[pt.species]?.isBoss ? 0.4 : 0.8;
+    const look = petLookOf(pt.species);
+    // a boss pet (or one bred from a boss) is a baby: much smaller than the real thing
+    const ps = pt.species.split("+").some((s) => MONSTERS[s]?.isBoss) ? 0.4 : 0.8;
     ctx.save();
     ctx.translate(pt.x, pt.y);
     if (!look.flying) {
@@ -310,7 +310,7 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
     ctx.save();
     ctx.scale(pt.facing * ps, ps);
     const pose = now - pt.struckAt < 240 ? "attack" : pt.moving ? (Math.floor(pt.walkT / 180) % 2 ? "walk1" : "walk0") : "rest";
-    drawMonster(ctx, pt.species, pose, now);
+    drawPet(ctx, pt.species, pose, now);
     ctx.restore();
     // a small heart: this one is yours
     const top = -look.body.h * ps - (look.flying ? 30 : 10);

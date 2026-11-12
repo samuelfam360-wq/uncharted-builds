@@ -1,6 +1,6 @@
 import { currentPlayerId, handle } from "@/lib/api";
 import { GameError } from "@/lib/game/character";
-import { chooseFirstPet, petAddPoints, setActivePet } from "@/lib/game/service";
+import { breedPets, chooseFirstPet, listBreeds, petAddPoints, setActivePet } from "@/lib/game/service";
 import { getStore } from "@/lib/store";
 
 export const POST = handle(async (body) => {
@@ -13,6 +13,10 @@ export const POST = handle(async (body) => {
       return setActivePet(store, id, typeof body.petId === "string" ? body.petId : null);
     case "add_points":
       return petAddPoints(store, id, String(body.petId ?? ""), body.alloc && typeof body.alloc === "object" ? body.alloc : {});
+    case "breed":
+      return breedPets(store, id, String(body.a ?? ""), String(body.b ?? ""));
+    case "breeds":
+      return { breeds: await listBreeds(store) };
   }
   throw new GameError("Unknown action");
 });

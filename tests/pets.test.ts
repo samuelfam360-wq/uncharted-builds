@@ -289,3 +289,55 @@ describe("pets and taming in the live game", () => {
     expect(e.tameTarget()).toBe(g);
   });
 });
+
+describe("breeding: a new mixed monster", () => {
+  const grownPet = (species: string, id: string, extra: Partial<ReturnType<typeof newPet>> = {}) => {
+    const p = newPet(species, id);
+    p.level = 50;
+    return { ...p, ...extra };
+  };
+
+  it("the baby is a new breed of both parents, starting at their average, capped at the higher parent", async () => {
+    const { breed, breedSpecies, speciesName, petStats: ps, capOf } = await import("../src/lib/game/pets");
+    const slime = grownPet("green_slime", "a", { stats: { HP: 100, STR: 10, VIT: 0, AGI: 0, DEX: 0, INT: 0 } });
+    const wolf = grownPet("thorn_wolf", "b");
+    const baby = breed(slime, wolf, "c");
+    expect(baby.species).toBe("green_slime+thorn_wolf");
+    expect(breedSpecies("thorn_wolf", "green_slime")).toBe(baby.species); // the same pair makes the same breed
+    expect(speciesName(baby.species)).toBe("Green Slime × Thorn Wolf");
+    expect(baby.level).toBe(1);
+    expect(baby.freePoints).toBe(10);
+    expect(baby.parents).toEqual(["green_slime", "thorn_wolf"]);
+    const a = ps(slime);
+    const b = ps(wolf);
+    expect(ps(baby).STR).toBe(Math.floor((a.STR + b.STR) / 2));
+    expect(capOf(baby, "HP")).toBe(Math.max(capOf(slime, "HP"), capOf(wolf, "HP")));
+    // a breed of a breed carries every species once
+    const toad = grownPet("bog_toad", "d");
+    const grownBaby = { ...baby, level: 50 };
+    expect(breed(grownBaby, toad, "e").species).toBe("bog_toad+green_slime+thorn_wolf");
+    // the same species twice is just that species
+    expect(breed(slime, grownPet("green_slime", "f"), "g").species).toBe("green_slime");
+    expect(() => breed(slime, { ...wolf, level: 49 }, "h")).toThrow(/level 50/);
+  });
+
+  it("the server breeds, needs Taming mastery, and keeps track of every new breed", async () => {
+    const { store, p } = await newPlayer("tamer", { MP: 3, HP: 2 });
+    const pl = (await store.getPlayer(p.id))!;
+    pl.pets = [grownPet("green_slime", "s1"), grownPet("thorn_wolf", "w1"), grownPet("thorn_wolf", "w2")];
+    await store.savePlayer(pl);
+    await expect(game.breedPets(store, p.id, "s1", "w1")).rejects.toThrow(/Taming mastery level 2/);
+    expect((await game.getState(store, p.id)).breeding).toEqual({ level: 50, tamingLevel: 2, tamingOk: false });
+    await store.applyCounters(p.id, { mxp_taming: { op: "set", value: 100 } });
+    await expect(game.breedPets(store, p.id, "s1", "nope")).rejects.toThrow(/isn't yours/);
+    const r = await game.breedPets(store, p.id, "s1", "w1");
+    expect(r.pet).toMatchObject({ name: "Green Slime × Thorn Wolf", level: 1, bred: true, parents: ["Green Slime", "Thorn Wolf"] });
+    expect(r.log.join(" ")).toContain("A new breed!");
+    const again = await game.breedPets(store, p.id, "s1", "w2");
+    expect(again.log.join(" ")).toContain("born 2 times");
+    const list = await game.listBreeds(store);
+    expect(list).toEqual([expect.objectContaining({ id: "green_slime+thorn_wolf", name: "Green Slime × Thorn Wolf", firstBredBy: "Rin", timesBred: 2 })]);
+    // parents stay, babies join
+    expect((await game.getState(store, p.id)).pets).toHaveLength(5);
+  });
+});
