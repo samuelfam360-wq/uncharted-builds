@@ -617,6 +617,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   const petCap = Math.max(0, ...outPets.map((x) => petAttacker(x, gloryOf(d))).map((a) => maxHit(attackSpec("unarmed", a), a) + 1));
   let petSwings = 0;
   let petLanded = 0;
+  let petLandedCount = 0;
   for (const h of report.hits) {
     if (h.pet) {
       // your pet's bite: bare-handed, with its own stats
@@ -625,6 +626,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       if (!h.miss) {
         if (h.dmg > petCap) throw new GameError("A hit was bigger than possible");
         petLanded += h.dmg;
+        petLandedCount++;
       }
       continue;
     }
@@ -759,7 +761,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
 
   // ----- the boss fight and its ultimates -----
   const bt = report.boss;
-  if (bt.hits > report.hitsTaken || bt.parries > report.parries || bt.dodges > report.dodged || bt.weaponHits > landedCount || bt.dmg > landed || bt.charges > chargeHits)
+  if (bt.hits > report.hitsTaken || bt.parries > report.parries || bt.dodges > report.dodged || bt.weaponHits > landedCount || bt.dmg > landed || bt.charges > chargeHits || (bt.petHits ?? 0) > petLandedCount)
     throw new GameError("Boss fight counts don't add up");
   if (bt.parryDmg > bt.parries * (maxBossBlow(zoneMonsters) + 1)) throw new GameError("Parried more damage than possible");
   const bf = {
@@ -772,6 +774,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     mp: (counters.bf_mp ?? 0) + bt.mp,
     healed: (counters.bf_healed ?? 0) + bt.healed,
     charges: (counters.bf_charges ?? 0) + bt.charges,
+    petHits: (counters.bf_pet_hits ?? 0) + (bt.petHits ?? 0),
   };
   const weaponMastery = WEAPON_MASTERY[player.weapon];
   if (bf.hits) maxCounter(deltas, "boss_fight_hits_best", bf.hits);
@@ -785,6 +788,8 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   let ultExpBonus = 1;
   for (const u of ultFired) {
     const spec = active.get(u.id)!.effect.active!.ultimate!;
+    // Primal Bond: your pet strikes, so it has to be out
+    if (spec.gauge === "boss_pet_hits" && !pet) throw new GameError("You have no pet out");
     const source = gaugeValue(spec.gauge, bf);
     const base = deltas[`bf_base_${u.id}`]?.value ?? counters[`bf_base_${u.id}`] ?? 0;
     if (bossMaxHp <= 0 || source - base < spec.tiers[u.tier - 1]) throw new GameError("That ultimate isn't charged yet");
@@ -807,6 +812,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     deltas.bf_mp = { op: "set", value: bf.mp };
     deltas.bf_healed = { op: "set", value: bf.healed };
     deltas.bf_charges = { op: "set", value: bf.charges };
+    deltas.bf_pet_hits = { op: "set", value: bf.petHits };
   }
 
   // ----- skills and MP -----
@@ -1018,6 +1024,8 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     inc(deltas, `defeated_${m.id}`);
     inc(deltas, "battles_won");
     if (m.isBoss) inc(deltas, "bosses_defeated");
+    // Primal Bond's unlock: a boss your pet beat all on its own
+    if (m.isBoss && petDmg > 0 && direct === 0 && (report.indirectToTarget ?? 0) === 0 && outPets.length) inc(deltas, "pet_solo_boss_wins");
     if (m.isBoss && report.duel && player.weapon === "sword" && report.itemsUsed.length === 0) inc(deltas, "boss_duels_won");
     if (report.hitsOnTarget === 1) inc(deltas, "one_hit_kills");
     if (report.killSkill && active.has(report.killSkill) && report.hits.some((h) => h.skillId === report.killSkill && !h.miss)) inc(deltas, `skill_kills_${report.killSkill}`);
@@ -1290,7 +1298,7 @@ function maxBlow(monsters: (typeof MONSTERS)[string][], element?: "physical" | "
 }
 
 /** How full an ultimate's gauge source is in this boss fight. */
-function gaugeValue(g: GaugeSource, bf: { hits: number; parries: number; dodges: number; weaponHits: number; mp: number; healed: number; charges: number }) {
+function gaugeValue(g: GaugeSource, bf: { hits: number; parries: number; dodges: number; weaponHits: number; mp: number; healed: number; charges: number; petHits: number }) {
   return {
     boss_hits: bf.hits,
     boss_parries: bf.parries,
@@ -1299,6 +1307,7 @@ function gaugeValue(g: GaugeSource, bf: { hits: number; parries: number; dodges:
     boss_mp_spent: bf.mp,
     boss_healed: bf.healed,
     boss_charges: bf.charges,
+    boss_pet_hits: bf.petHits,
   }[g];
 }
 
@@ -1313,7 +1322,7 @@ function maxBossBlow(monsters: (typeof MONSTERS)[string][]): number {
 
 /** A boss fight is over: clear its tallies and every ultimate gauge. */
 function resetBossFight(deltas: CounterDeltas, defs: Iterable<SkillDefinition>) {
-  for (const k of ["bf_hits", "bf_parries", "bf_parry_dmg", "bf_dodges", "bf_weapon_hits", "bf_dmg", "bf_mp", "bf_healed", "bf_charges"]) deltas[k] = { op: "set", value: 0 };
+  for (const k of ["bf_hits", "bf_parries", "bf_parry_dmg", "bf_dodges", "bf_weapon_hits", "bf_dmg", "bf_mp", "bf_healed", "bf_charges", "bf_pet_hits"]) deltas[k] = { op: "set", value: 0 };
   for (const d of defs) {
     if (!d.effect.active?.ultimate) continue;
     deltas[`bf_base_${d.id}`] = { op: "set", value: 0 };

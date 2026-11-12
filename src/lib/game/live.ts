@@ -192,6 +192,7 @@ export interface BossTally {
   mp: number; // MP spent on skills during the fight
   healed: number; // HP healed or drained during the fight
   charges: number; // lance charges that hit the boss
+  petHits?: number; // your pet's bites that landed on the boss
 }
 
 export interface LiveReport {
@@ -336,6 +337,7 @@ export function cleanReport(body: unknown): LiveReport {
       mp: num(boss.mp),
       healed: num(boss.healed),
       charges: num(boss.charges, 100000),
+      petHits: num(boss.petHits, 100000),
     },
     bossEnd: b.bossEnd === true,
     duel: b.duel === true,
