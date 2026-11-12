@@ -48,6 +48,8 @@ export interface Appearance {
   build: string;
   /** The animated body in 3D. Players made before this existed don't have one. */
   body?: string;
+  /** The colour of the neon glow on the hero in 3D. Without one, the class colour is used. */
+  glow?: string;
 }
 
 export const STATUS_TYPES = [

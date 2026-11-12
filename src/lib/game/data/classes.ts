@@ -33,6 +33,39 @@ export const APPEARANCE_OPTIONS: Record<keyof Appearance, { label: string; optio
   eyeColor: { label: "Eye color", options: ["Brown", "Black", "Blue", "Green", "Gray", "Amber", "Red", "Violet"] },
   build: { label: "Body build", options: ["Slim", "Average", "Strong"] },
   body: { label: "3D body", options: ["Knight", "Barbarian", "Mage", "Rogue", "Hooded Rogue"] },
+  glow: { label: "Glow colour", options: ["Cyan", "Blue", "Red", "Orange", "Yellow", "White Gold", "Purple", "Mint", "Pink", "Green", "Lime", "White"] },
+};
+
+/** The neon glow colours of the 3D heroes. */
+export const GLOW: Record<string, string> = {
+  Cyan: "#2de2ff",
+  Blue: "#4d8dff",
+  Red: "#ff4d5e",
+  Orange: "#ff8a2b",
+  Yellow: "#ffd23f",
+  "White Gold": "#fff2b0",
+  Purple: "#b36bff",
+  Mint: "#3df5c8",
+  Pink: "#ff2bd6",
+  Green: "#4dff9a",
+  Lime: "#c8ff2b",
+  White: "#f4f6ff",
+};
+
+/** Each class starts with its own glow colour; the player can pick another. */
+export const CLASS_GLOW: Record<ClassId, string> = {
+  swordsman: "Cyan",
+  tanker: "Blue",
+  lancer: "Red",
+  blacksmith: "Orange",
+  monk: "Yellow",
+  saint: "White Gold",
+  mage: "Purple",
+  tamer: "Mint",
+  assassin: "Pink",
+  ranger: "Green",
+  gunslinger: "Lime",
+  free: "White",
 };
 
 /** The animated bodies in 3D (from the free KayKit Adventurers pack). */
@@ -64,6 +97,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   eyeColor: "Brown",
   build: "Average",
   body: "Knight",
+  glow: "Cyan",
 };
 
 /** Accept only known options; anything missing or unknown falls back to the default. */
@@ -76,6 +110,8 @@ export function cleanAppearance(input: unknown): Appearance {
   }
   // no body picked: the 3D view gives one that matches the class
   if (!(typeof src.body === "string" && APPEARANCE_OPTIONS.body.options.includes(src.body))) delete out.body;
+  // no glow picked: the 3D view uses the class colour
+  if (!(typeof src.glow === "string" && APPEARANCE_OPTIONS.glow.options.includes(src.glow))) delete out.glow;
   return out;
 }
 

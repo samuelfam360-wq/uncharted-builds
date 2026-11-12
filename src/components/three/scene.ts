@@ -4,11 +4,15 @@
 // Reads the engine's state each frame; never changes it.
 
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { MONSTERS } from "@/lib/game/data/world";
 import { TILE3, type Map3D } from "@/lib/game/data/maps3d";
 import type { Look } from "../side/hero";
 import { makeSlimeCoat } from "./effects";
-import { loadPack, makeRiggedHero, onPackReady, packReady } from "./rigged";
+import { glowPower, loadPack, makeRiggedHero, onPackReady, packReady } from "./rigged";
 import { MONSTER_LOOKS } from "../side/sprites";
 import { WEAPON_FEEL, type Engine3D, type Monster, type PetUnit } from "./engine3d";
 import {
@@ -58,6 +62,9 @@ function ownMaterials(root: THREE.Object3D): THREE.MeshToonMaterial[] {
     let c = seen.get(mat);
     if (!c) {
       c = mat.clone();
+      // a copy drops the shader add-ons (the hero's edge glow): hand them over
+      c.onBeforeCompile = mat.onBeforeCompile;
+      c.customProgramCacheKey = mat.customProgramCacheKey;
       seen.set(mat, c);
       out.push(c);
     }
@@ -128,6 +135,9 @@ export class World3D {
   private scarRing: THREE.Group | null = null;
   private counterGlow: THREE.Mesh | null = null;
   private offPack: () => void;
+  /** Draws the scene with a soft glow around anything brighter than white (neon trims, weapons). */
+  private composer: EffectComposer;
+  private glowRing: THREE.Mesh | null = null;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -138,6 +148,10 @@ export class World3D {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.overlay = overlayCanvas.getContext("2d")!;
+    this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(4, 4, { samples: 4, type: THREE.HalfFloatType }));
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.2, 1.05));
+    this.composer.addPass(new OutputPass());
     // the animated characters: until they load, the simple code-built ones are shown
     void loadPack();
     this.offPack = onPackReady(() => {
@@ -190,6 +204,8 @@ export class World3D {
   resize(w: number, h: number, dpr: number) {
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
+    this.composer.setPixelRatio(dpr);
+    this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.overlayCanvas.width = Math.round(w * dpr);
@@ -232,22 +248,23 @@ export class World3D {
       this.sky.visible = false;
       this.hemi.color.set("#9a8cff");
       this.hemi.groundColor.set("#2a3a3a");
-      this.hemi.intensity = 1.2;
-      this.sun.intensity = 0.7;
+      this.hemi.intensity = 0.8;
+      this.sun.intensity = 0.45;
       this.sun.color.set("#b8a8ff");
-      this.glow.intensity = 6;
+      this.glow.intensity = 3;
     } else {
       this.scene.background = null;
-      this.scene.fog = new THREE.Fog("#dff2ff", 30, 90);
+      // dusk: dim enough for the neon to glow, never black
+      this.scene.fog = new THREE.Fog("#8f7fd6", 30, 90);
       this.sky.visible = true;
-      skyMat.uniforms.top.value.set("#5fb8ff");
-      skyMat.uniforms.bottom.value.set("#e9f7ff");
-      this.hemi.color.set("#d8efff");
-      this.hemi.groundColor.set("#86a86a");
-      this.hemi.intensity = 1.5;
-      this.sun.intensity = 2.0;
-      this.sun.color.set("#fff4de");
-      this.glow.intensity = 0;
+      skyMat.uniforms.top.value.set("#2f2a86");
+      skyMat.uniforms.bottom.value.set("#b79cf0");
+      this.hemi.color.set("#c9c4ff");
+      this.hemi.groundColor.set("#5f7f6a");
+      this.hemi.intensity = 0.8;
+      this.sun.intensity = 0.55;
+      this.sun.color.set("#ffe2c8");
+      this.glow.intensity = 2.2;
     }
 
     // the ground, with gentle colour patches
@@ -556,7 +573,7 @@ export class World3D {
     this.sun.target.position.set(px, 0, pz);
     this.glow.position.set(px, 2.2, pz);
     this.sky.position.copy(this.camera.position);
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
     this.drawOverlay(e, now, info);
   }
 
@@ -638,6 +655,17 @@ export class World3D {
     if (!this.hero || key !== this.heroLook) {
       if (this.hero) this.dyn.remove(this.hero.root);
       this.hero = heroFor(info.look);
+      // the light you carry takes your glow colour
+      this.glow.color.set(info.look.glow ?? "#ffcf8a").lerp(new THREE.Color("#ffffff"), 0.8);
+      // a neon ring on the ground under you, in your glow colour
+      if (!this.glowRing) {
+        this.glowRing = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.435, 40), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, depthWrite: false }));
+        this.glowRing.rotation.x = -Math.PI / 2;
+        this.glowRing.renderOrder = 1;
+        this.scene.add(this.glowRing);
+      }
+      this.glowRing.visible = !!info.look.glow;
+      if (info.look.glow) (this.glowRing.material as THREE.MeshBasicMaterial).color.set(info.look.glow).multiplyScalar(glowPower(info.look.glow));
       this.heroMats = ownMaterials(this.hero.root);
       this.heroLook = key;
       this.dyn.add(this.hero.root);
@@ -676,6 +704,10 @@ export class World3D {
     }
     setOutlines(h.root, op === 1);
     this.heroShadow.position.set(p.x * U, 0.02, p.z * U);
+    if (this.glowRing) {
+      this.glowRing.position.set(p.x * U, 0.03, p.z * U);
+      (this.glowRing.material as THREE.MeshBasicMaterial).opacity = p.dead ? 0.25 : 1;
+    }
     // Wolf's Scars: a dashed red ring on the ground shows how far the slowing aura reaches
     const scars = e.combat.passive.scar_aura;
     if (scars && !p.dead) {
@@ -804,7 +836,7 @@ export class World3D {
 
   private syncClones(e: Engine3D, now: number) {
     while (this.clones.length < e.clones.length) {
-      const model = heroFor({ skin: "#8a7bff", hair: "#5a4ad0", eyes: "#ffffff", shirt: "#6b5ae0", hairStyle: "Short", female: false, build: "Average", body: this.heroBody });
+      const model = heroFor({ skin: "#8a7bff", hair: "#5a4ad0", eyes: "#ffffff", shirt: "#6b5ae0", hairStyle: "Short", female: false, build: "Average", body: this.heroBody, noFace: true });
       const mats = ownMaterials(model.root);
       for (const m of mats) {
         m.transparent = true;
@@ -1036,6 +1068,7 @@ export class World3D {
   dispose() {
     this.offPack();
     this.disposeGroup(this.mapGroup);
+    this.composer.dispose();
     this.renderer.dispose();
   }
 }

@@ -49,8 +49,8 @@ export function makeSlimeCoat(root: THREE.Object3D, thickness: number, time: { v
   root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh || m.userData.outline || m.userData.coat || !m.visible) return;
-    // weapons stay dry
-    for (let a: THREE.Object3D | null = m; a && a !== root; a = a.parent) if (a.userData.weapon) return;
+    // weapons and the painted face stay dry
+    for (let a: THREE.Object3D | null = m; a && a !== root; a = a.parent) if (a.userData.weapon || a.userData.detail) return;
     bodies.push(m);
   });
   const coat: THREE.Mesh[] = [];
