@@ -28,22 +28,22 @@ export default function MenuPanels({
   const offered = state.skills.filter((s) => s.status === "offered");
   const owned = state.skills.filter((s) => s.status === "owned");
   const allocTotal = Object.values(alloc).reduce((n, v) => n + (v ?? 0), 0);
-  const skill = (skillId: string, action: string) => run(() => api("/api/skills", { skillId, action }));
-  const town = (body: Record<string, unknown>) => run(() => api("/api/town", body));
-  const pets = (body: Record<string, unknown>) => run(() => api("/api/pets", body));
+  const skill = (skillId: string, action: string) => run(() => api("/api/skills", { skillId, action, withState: true }));
+  const town = (body: Record<string, unknown>) => run(() => api("/api/town", { ...body, withState: true }));
+  const pets = (body: Record<string, unknown>) => run(() => api("/api/pets", { ...body, withState: true }));
   const [mate, setMate] = useState<{ a: string; b: string }>({ a: "", b: "" });
   const [breedMsg, setBreedMsg] = useState<string[]>([]);
   const [breeds, setBreeds] = useState<{ id: string; name: string; firstBredBy: string | null; timesBred: number }[] | null>(null);
   const grown = state.pets.filter((p) => p.level >= state.breeding.level);
   const breedNow = async () => {
-    const r = await run(() => api<{ log: string[] }>("/api/pets", { action: "breed", a: mate.a, b: mate.b }));
+    const r = await run(() => api<{ log: string[] }>("/api/pets", { action: "breed", a: mate.a, b: mate.b, withState: true }));
     if (r) {
       setBreedMsg(r.log);
       setMate({ a: "", b: "" });
     }
   };
   const showBreeds = async () => {
-    const r = await run(() => api<{ breeds: { id: string; name: string; firstBredBy: string | null; timesBred: number }[] }>("/api/pets", { action: "breeds" }));
+    const r = await run(() => api<{ breeds: { id: string; name: string; firstBredBy: string | null; timesBred: number }[] }>("/api/pets", { action: "breeds", withState: true }));
     if (r) setBreeds(r.breeds);
   };
 
@@ -120,7 +120,7 @@ export default function MenuPanels({
             className="btn-primary flex-1"
             disabled={busy}
             onClick={async () => {
-              await run(() => api("/api/stats", { add: alloc }));
+              await run(() => api("/api/stats", { add: alloc, withState: true }));
               setAlloc({});
             }}
           >
