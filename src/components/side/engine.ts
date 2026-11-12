@@ -344,6 +344,7 @@ const emptyAcc = () => ({
   zeroHits: 0,
   statuses: [] as StatusType[],
   swampTicks: 0,
+  swampMs: 0,
   minHpPct: 1,
   hitsTaken: 0,
   guardStored: 0,
@@ -763,6 +764,12 @@ export class Engine {
     // swamp
     const lowRow = Math.floor((p.y - 8) / TILE);
     p.inSwamp = isSwamp(tileAt(this.map, Math.floor((p.x - 10) / TILE), lowRow)) || isSwamp(tileAt(this.map, Math.floor((p.x + 10) / TILE), lowRow));
+    if (p.inSwamp) {
+      // time in the swamp (a boss egg you carry hatches from it): sent every few seconds
+      const before = this.acc.swampMs;
+      this.acc.swampMs += dt * 1000;
+      if (Math.floor(this.acc.swampMs / 5000) > Math.floor(before / 5000)) this.acc.dirty = true;
+    }
     // keep inside the map
     const { w } = mapSize(this.map);
     p.x = Math.max(PLAYER_W / 2, Math.min(w - PLAYER_W / 2, p.x));
@@ -2290,6 +2297,7 @@ export class Engine {
       zeroHits: a.zeroHits,
       statuses: a.statuses,
       swampTicks: a.swampTicks,
+      swampMs: Math.round(a.swampMs),
       hitsTaken: a.hitsTaken,
       hitStreak: this.hitStreak,
       guardStored: a.guardStored,

@@ -253,6 +253,30 @@ export default function MenuPanels({
       </section>
     )}
 
+    {state.eggs.length > 0 && (
+      <section className="panel border-gold/40">
+        <h3 className="title text-lg">Eggs</h3>
+        <ul className="mt-2 space-y-2">
+          {state.eggs.map((egg) => (
+            <li key={egg.boss} className="rounded-lg bg-panel-2 p-2 text-sm">
+              <div className="font-semibold">{egg.name}</div>
+              {egg.hatch ? (
+                <>
+                  <p className="mt-1 text-xs">{egg.hatch}</p>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded bg-black/40">
+                    <div className="h-full bg-gold" style={{ width: `${Math.floor((egg.pct ?? 0) * 100)}%` }} />
+                  </div>
+                  {egg.needs && <p className="mt-1 text-xs text-blood">It also needs: {egg.needs}</p>}
+                </>
+              ) : (
+                <p className="mt-1 text-xs text-muted">It won&apos;t hatch yet. Something has to happen first: <span className="tracking-widest text-gold">??????</span></p>
+              )}
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
     {state.uniqueItem && (
       <section className="panel border-gold/60">
         <div className="label text-gold">Unique · one on the whole server</div>

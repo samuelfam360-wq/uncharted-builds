@@ -297,21 +297,23 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
   if (e.pet) {
     const pt = e.pet;
     const look = MONSTER_LOOKS[pt.species];
+    // a boss pet is a baby: much smaller than the real thing
+    const ps = MONSTERS[pt.species]?.isBoss ? 0.4 : 0.8;
     ctx.save();
     ctx.translate(pt.x, pt.y);
     if (!look.flying) {
       ctx.fillStyle = "rgba(0,0,0,0.18)";
       ctx.beginPath();
-      ctx.ellipse(0, 0, look.body.w * 0.36, 5, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, look.body.w * 0.45 * ps, 5, 0, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.save();
-    ctx.scale(pt.facing * 0.8, 0.8);
+    ctx.scale(pt.facing * ps, ps);
     const pose = now - pt.struckAt < 240 ? "attack" : pt.moving ? (Math.floor(pt.walkT / 180) % 2 ? "walk1" : "walk0") : "rest";
     drawMonster(ctx, pt.species, pose, now);
     ctx.restore();
     // a small heart: this one is yours
-    const top = -look.body.h * 0.8 - (look.flying ? 30 : 10);
+    const top = -look.body.h * ps - (look.flying ? 30 : 10);
     ctx.fillStyle = "#ff7aa8";
     ctx.beginPath();
     ctx.moveTo(0, top + 6);

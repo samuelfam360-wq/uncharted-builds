@@ -21,7 +21,7 @@ import { findUnlocks, type BattleSummary } from "./rules";
 import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport, type ReportHit } from "./live";
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
 import { describeCondition, revealHints } from "./reveal";
-import { FIRST_PET_CHOICES, PET_ATTACK_MS, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
+import { BOSS_EGGS, BOSS_EGG_MS, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
 import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
@@ -169,6 +169,20 @@ export async function getState(store: GameStore, playerId: string) {
     uniqueItem: unique,
     pets: player.pets.map(publicPet),
     firstPetChoices: canChooseFirstPet(player) ? FIRST_PET_CHOICES.map((id) => ({ species: id, name: speciesName(id) })) : [],
+    // boss eggs you carry: how to hatch one stays hidden until you're 80% of the way there
+    eggs: Object.entries(BOSS_EGGS)
+      .filter(([boss]) => counters[eggKey(boss)])
+      .map(([boss, egg]) => {
+        const pct = Math.min(1, (counters[eggSwampKey(boss)] ?? 0) / EGG_SWAMP_MS);
+        const shown = pct >= 0.8;
+        return {
+          boss,
+          name: egg.name,
+          pct: shown ? pct : null,
+          hatch: shown ? egg.hatchText : null,
+          needs: shown && masteryLevel(counters[masteryKey("taming")] ?? 0) < EGG_TAMING_LEVEL ? `Taming mastery level ${EGG_TAMING_LEVEL}` : null,
+        };
+      }),
     battle: battle ? publicBattle(battle) : null,
     zones: Object.values(ZONES).map((z) => ({ id: z.id, name: z.name, kind: z.kind, description: z.description })),
     weapons: Object.values(WEAPONS).map((w) => ({ ...w, owned: player.ownedWeapons.includes(w.type) })),
@@ -484,7 +498,7 @@ async function closeOldBattle(store: GameStore, playerId: string) {
   if (b && !b.over) await store.saveBattle({ ...b, over: true, result: "fled" }, false);
 }
 
-const runKey = (dungeonId: string, k: "active" | "room" | "direct" | "first") => `run_${dungeonId}_${k}`;
+const runKey = (dungeonId: string, k: "active" | "room" | "direct" | "first" | "room_t") => `run_${dungeonId}_${k}`;
 
 /** Walking onto a map. Entering the dungeon starts a new attempt; leaving it ends the attempt. */
 export async function liveEnter(store: GameStore, playerId: string, zoneId: string, now = Date.now()) {
@@ -509,6 +523,7 @@ export async function liveEnter(store: GameStore, playerId: string, zoneId: stri
     await store.savePlayer(player);
     deltas[runKey(zone.id, "active")] = { op: "set", value: 1 };
     deltas[runKey(zone.id, "room")] = { op: "set", value: 0 };
+    deltas[runKey(zone.id, "room_t")] = { op: "set", value: now };
     deltas[runKey(zone.id, "direct")] = { op: "set", value: 0 };
     deltas[runKey(zone.id, "first")] = { op: "set", value: attempts === 0 ? 1 : 0 };
     run = { room: 0, totalRooms: zone.rooms!.length, firstAttempt: attempts === 0 };
@@ -840,6 +855,8 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   inc(deltas, "damage_taken", taken);
   inc(deltas, "hazard_damage_taken", t.hazard);
   if (report.swampTicks > elapsedSec / (TICK_MS / 1000) + 2) throw new GameError("Too much time in the swamp");
+  const swampMs = report.swampMs ?? 0;
+  if (swampMs > elapsedSec * 1000 + 3000) throw new GameError("Too much time in the swamp");
   inc(deltas, "swamp_turns", report.swampTicks);
   inc(deltas, "hits_dodged", report.dodged);
   inc(deltas, "defend_used", report.blocks);
@@ -920,6 +937,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   let summary: BattleSummary | null = null;
   let run: { room: number; totalRooms: number; cleared: boolean } | null = null;
   let tamed: ReturnType<typeof publicPet> | null = null;
+  let eggFound: string | null = null;
   // Taming evidence since you came onto this map (or last tamed something).
   const statusCount = (t: string) => report.statuses.filter((x) => x === t).length;
   const fx = {
@@ -959,14 +977,17 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     spendBanks(direct, petDmg, report.hitsOnTarget ?? 0);
     let dungeonCleared = false;
     let directRun = -1;
+    let roomStart = 0;
     let firstAttempt = false;
     if (zone.kind === "dungeon") {
       if (!counters[runKey(zone.id, "active")]) throw new GameError("Enter the dungeon first");
       const room = counters[runKey(zone.id, "room")] ?? 0;
       if (zone.rooms![room] !== m.id) throw new GameError("That monster isn't in this room");
       directRun = (counters[runKey(zone.id, "direct")] ?? 0) + direct;
+      roomStart = counters[runKey(zone.id, "room_t")] ?? 0;
       firstAttempt = counters[runKey(zone.id, "first")] === 1;
       deltas[runKey(zone.id, "room")] = { op: "set", value: room + 1 };
+      deltas[runKey(zone.id, "room_t")] = { op: "set", value: now };
       deltas[runKey(zone.id, "direct")] = { op: "set", value: directRun };
       dungeonCleared = room + 1 >= zone.rooms!.length;
       if (dungeonCleared) deltas[runKey(zone.id, "active")] = { op: "set", value: 0 };
@@ -1017,6 +1038,15 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       if (grantPetExp(out, exp) > 0) log.push(`Your ${speciesName(out.species)} reached level ${out.level}!`);
     }
     for (const id of drops) inv.set(id, (inv.get(id) ?? 0) + 1);
+    // a boss beaten fast enough (timed from when its room opened) leaves its egg, once per player
+    const egg = BOSS_EGGS[m.id];
+    if (egg && !counters[eggGotKey(m.id)] && roomStart > 0 && now - roomStart <= BOSS_EGG_MS + EGG_GRACE_MS) {
+      deltas[eggKey(m.id)] = { op: "set", value: 1 };
+      deltas[eggGotKey(m.id)] = { op: "set", value: 1 };
+      deltas[eggSwampKey(m.id)] = { op: "set", value: 0 };
+      eggFound = m.id;
+      log.push(`You found ${egg.name}! It won't hatch just yet.`);
+    }
     if (r.levelsGained > 0) {
       levelUp = true;
       const nd = derive(player, skills, defs, unique);
@@ -1084,6 +1114,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       const room = counters[runKey(zone.id, "room")] ?? 0;
       if (zone.rooms![room] !== m.id) throw new GameError("That monster isn't in this room");
       deltas[runKey(zone.id, "room")] = { op: "set", value: room + 1 };
+      deltas[runKey(zone.id, "room_t")] = { op: "set", value: now };
       run = { room: room + 1, totalRooms: zone.rooms!.length, cleared: false };
     } else if (!zone.encounters!.some((e) => e.monsterId === m.id)) {
       throw new GameError("That monster doesn't live here");
@@ -1135,6 +1166,23 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   });
   if (mastery.levelUp) log.push(`${mastery.name} mastery reached level ${mastery.level}!`);
 
+  // ----- boss eggs: carried through the swamp, they hatch (for someone with Taming mastery) -----
+  if (!dead) {
+    for (const [boss, egg] of Object.entries(BOSS_EGGS)) {
+      if (!counters[eggKey(boss)]) continue;
+      const carried = Math.min(EGG_SWAMP_MS, (counters[eggSwampKey(boss)] ?? 0) + swampMs);
+      if (swampMs > 0) deltas[eggSwampKey(boss)] = { op: "set", value: carried };
+      if (carried < EGG_SWAMP_MS || masteryLevel(counters[masteryKey("taming")] ?? 0) < EGG_TAMING_LEVEL) continue;
+      const pet = newPet(boss, randomUUID(), new Date(now));
+      if (!activePet(player)) pet.active = true;
+      player.pets = [...player.pets, pet];
+      deltas[eggKey(boss)] = { op: "set", value: 0 };
+      inc(deltas, "eggs_hatched");
+      log.push(`${egg.name} hatched! A baby ${speciesName(boss)} joined you.${pet.active ? " It fights beside you now." : " Send it out from the Pets menu."}`);
+      tamed = publicPet(pet);
+    }
+  }
+
   // Save: items, counters, player. Items go one by one so the store keeps its own rules.
   const before = new Map((await store.getInventory(playerId)).map((i) => [i.itemId, i.qty]));
   for (const [id, qty] of inv) {
@@ -1157,10 +1205,14 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     unlocks,
     mastery,
     tamed,
+    egg: eggFound,
   };
 }
 
 // ---------- helpers for live fights ----------
+
+/** Kill reports reach the server a few seconds after the blow: allow for that in the boss egg's timer. */
+const EGG_GRACE_MS = 10_000;
 
 /**
  * Each species' hidden taming condition, as far as the server can see it:
