@@ -1,11 +1,29 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import dynamic from "next/dynamic";
+import { useMemo, useState } from "react";
 import { BASE_HP, BASE_MP, HP_PER_POINT, MP_PER_POINT, STAT_INFO, WEAPONS } from "@/lib/game/constants";
-import { APPEARANCE_KEYS, APPEARANCE_OPTIONS, CLASS_BODY, CLASSES, DEFAULT_APPEARANCE } from "@/lib/game/data/classes";
+import { APPEARANCE_OPTIONS, BODY_OPTIONS, CLASS_BODY, CLASS_GLOW, CLASSES, DEFAULT_APPEARANCE, GLOW } from "@/lib/game/data/classes";
 import { CLASS_IDS, STAT_KEYS, type Appearance, type ClassId, type StatKey } from "@/lib/game/types";
 import { api } from "@/lib/client";
+import { EYES, HAIR, SKIN, lookFor } from "./side/hero";
+
+// the live 3D hero; it needs the browser, so it loads after the page
+const AvatarPreview = dynamic(() => import("./three/AvatarPreview"), {
+  ssr: false,
+  loading: () => <div className="h-72 w-full rounded-lg border border-line bg-panel-2 sm:h-80" />,
+});
+
+/** Looks you pick by clicking a colour. */
+const COLOUR_PICKS: { key: "skinTone" | "hairColor" | "eyeColor" | "glow"; colours: Record<string, string> }[] = [
+  { key: "skinTone", colours: SKIN },
+  { key: "hairColor", colours: HAIR },
+  { key: "eyeColor", colours: EYES },
+  { key: "glow", colours: GLOW },
+];
+/** Looks that only show in the 2D view. */
+const SHAPE_PICKS = ["gender", "hairStyle", "build"] as const;
 
 const NO_POINTS: Record<StatKey, number> = { HP: 0, MP: 0, STR: 0, VIT: 0, AGI: 0, DEX: 0, INT: 0 };
 const STARTING_TOTAL = 10;
@@ -34,9 +52,15 @@ export default function CreateCharacter() {
   const allIn = (k: StatKey) => setStats({ ...NO_POINTS, [k]: freeTotal });
   const pickClass = (id: ClassId) => {
     setClassId(id);
-    setLook((l) => ({ ...l, body: CLASS_BODY[id] })); // a matching 3D body; the player can still change it
+    // a matching 3D body and glow colour; the player can still change them
+    setLook((l) => ({ ...l, body: CLASS_BODY[id], glow: CLASS_GLOW[id] }));
     setStats(NO_POINTS); // free points differ between classes, so start the spend over
   };
+
+  const hero = useMemo(() => lookFor(look, classId), [look, classId]);
+  const bodyAt = Math.max(0, BODY_OPTIONS.indexOf((look.body ?? CLASS_BODY[classId]) as (typeof BODY_OPTIONS)[number]));
+  const turnBody = (step: number) =>
+    setLook((l) => ({ ...l, body: BODY_OPTIONS[(bodyAt + step + BODY_OPTIONS.length) % BODY_OPTIONS.length] }));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -64,19 +88,69 @@ export default function CreateCharacter() {
         </div>
         <div>
           <div className="label mb-2">Your look</div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {APPEARANCE_KEYS.map((k) => (
-              <label key={k} className="block space-y-1">
-                <span className="text-xs text-muted">{APPEARANCE_OPTIONS[k].label}</span>
-                <select className="input" value={look[k]} onChange={(e) => setLook((l) => ({ ...l, [k]: e.target.value }))}>
-                  {APPEARANCE_OPTIONS[k].options.map((o) => (
-                    <option key={o}>{o}</option>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <AvatarPreview look={hero} weapon={cls.weapon} />
+              <div className="mt-2 flex items-center justify-center gap-3">
+                <button type="button" className="btn px-3 py-1" onClick={() => turnBody(-1)} aria-label="Previous body">
+                  ◀
+                </button>
+                <span className="w-28 text-center text-sm font-semibold" data-testid="body-name">
+                  {BODY_OPTIONS[bodyAt]}
+                </span>
+                <button type="button" className="btn px-3 py-1" onClick={() => turnBody(1)} aria-label="Next body">
+                  ▶
+                </button>
+              </div>
+              <p className="mt-1 text-center text-xs text-muted">Drag your hero to turn it.</p>
+            </div>
+            <div className="space-y-3">
+              {COLOUR_PICKS.map(({ key, colours }) => (
+                <div key={key}>
+                  <div className="mb-1 text-xs text-muted">
+                    {APPEARANCE_OPTIONS[key].label}: <span className="text-text">{look[key]}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2" role="group" aria-label={APPEARANCE_OPTIONS[key].label}>
+                    {APPEARANCE_OPTIONS[key].options.map((o) => (
+                      <button
+                        type="button"
+                        key={o}
+                        title={o}
+                        aria-label={`${APPEARANCE_OPTIONS[key].label}: ${o}`}
+                        aria-pressed={look[key] === o}
+                        onClick={() => setLook((l) => ({ ...l, [key]: o }))}
+                        className={`h-8 w-8 rounded-full border-2 transition ${look[key] === o ? "scale-110 border-gold ring-2 ring-gold/50" : "border-line hover:border-moss"}`}
+                        style={{ background: colours[o] }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <details className="rounded-lg border border-line p-2">
+                <summary className="cursor-pointer text-xs text-muted">More choices for the 2D view</summary>
+                <div className="mt-2 space-y-2">
+                  {SHAPE_PICKS.map((k) => (
+                    <div key={k}>
+                      <div className="mb-1 text-xs text-muted">{APPEARANCE_OPTIONS[k].label}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {APPEARANCE_OPTIONS[k].options.map((o) => (
+                          <button
+                            type="button"
+                            key={o}
+                            aria-pressed={look[k] === o}
+                            onClick={() => setLook((l) => ({ ...l, [k]: o }))}
+                            className={`rounded-md border px-2 py-1 text-xs transition ${look[k] === o ? "border-gold bg-gold/10" : "border-line bg-panel-2 hover:border-moss"}`}
+                          >
+                            {o}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
-                </select>
-              </label>
-            ))}
+                </div>
+              </details>
+            </div>
           </div>
-          <p className="mt-2 text-xs text-muted">Your look is saved now and will show on your character in the 3D version.</p>
         </div>
       </section>
 

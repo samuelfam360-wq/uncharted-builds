@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { derive, freeStartingPoints, newCharacter } from "../src/lib/game/character";
 import { resolveTurn, startBattle, type Rng } from "../src/lib/game/combat";
 import { WEAPONS } from "../src/lib/game/constants";
-import { APPEARANCE_KEYS, APPEARANCE_OPTIONS, BODY_OPTIONS, CLASS_BODY, CLASSES, DEFAULT_APPEARANCE } from "../src/lib/game/data/classes";
+import { APPEARANCE_KEYS, APPEARANCE_OPTIONS, BODY_OPTIONS, CLASS_BODY, CLASS_GLOW, CLASSES, DEFAULT_APPEARANCE, GLOW } from "../src/lib/game/data/classes";
 import { lookFor } from "../src/components/side/hero";
 import { MONSTERS } from "../src/lib/game/data/world";
 import { MemoryStore } from "../src/lib/store/memory";
@@ -88,9 +88,10 @@ describe("appearance", () => {
       { name: "Look", classId: "mage", appearance: { gender: "Female", hairColor: "Red", eyeColor: "<script>", build: 5 }, stats: {} },
       "p",
     );
-    const { body: _unpicked, ...rest } = DEFAULT_APPEARANCE;
+    const { body: _unpicked, glow: _noGlow, ...rest } = DEFAULT_APPEARANCE;
     void _unpicked;
-    // no 3D body picked: none is saved, so the 3D view gives one that matches the class
+    void _noGlow;
+    // no 3D body or glow picked: none is saved, so the 3D view gives ones that match the class
     expect(p.appearance).toEqual({ ...rest, gender: "Female", hairColor: "Red" });
     for (const k of APPEARANCE_KEYS) expect(APPEARANCE_OPTIONS[k].options).toContain(DEFAULT_APPEARANCE[k]);
   });
@@ -106,6 +107,21 @@ describe("appearance", () => {
     expect(lookFor({ ...DEFAULT_APPEARANCE, body: undefined }, "assassin").body).toBe("Hooded Rogue");
     expect(lookFor({ ...DEFAULT_APPEARANCE, body: "Barbarian" }, "mage").body).toBe("Barbarian");
     for (const id of CLASS_IDS) expect(BODY_OPTIONS).toContain(CLASS_BODY[id]);
+  });
+
+  it("keeps a picked glow colour and drops an unknown one", () => {
+    const make = (glow: unknown) => newCharacter({ name: "Glow", classId: "mage", appearance: { glow }, stats: {} }, "p").appearance.glow;
+    expect(make("Lime")).toBe("Lime");
+    expect(make("#ff0000")).toBeUndefined();
+  });
+
+  it("gives every class a glow colour, which the player's own pick replaces", () => {
+    for (const id of CLASS_IDS) {
+      expect(APPEARANCE_OPTIONS.glow.options).toContain(CLASS_GLOW[id]);
+      expect(lookFor({ ...DEFAULT_APPEARANCE, glow: undefined }, id).glow).toBe(GLOW[CLASS_GLOW[id]]);
+    }
+    for (const name of APPEARANCE_OPTIONS.glow.options) expect(GLOW[name]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(lookFor({ ...DEFAULT_APPEARANCE, glow: "Pink" }, "mage").glow).toBe(GLOW.Pink);
   });
 
   it("is shown in the player's state", async () => {
