@@ -145,6 +145,90 @@ export function addOutTime(p: Pet, ms: number): number {
 /** How many of your pets have every heart (Kindred Spirit's unlock). */
 export const fullBondPets = (player: Player) => player.pets.filter((p) => heartsOf(p) >= MAX_HEARTS).length;
 
+// ---------- traits ----------
+
+/**
+ * Traits: perks a pet carries. Every species has its own; others are learned
+ * with pet points, and a bred baby inherits what its parents learned.
+ * Only as many as the pet has trait slots are switched on.
+ * NAMES ARE PLACEHOLDERS until Samuel names them.
+ */
+export interface TraitDef {
+  id: string;
+  name: string;
+  description: string;
+  /** Each stat goes up by this share. */
+  stats: Partial<Record<PetStat, number>>;
+}
+const statTrait = (id: string, stat: PetStat, pct = 0.1): TraitDef => ({
+  id,
+  name: `Trait: +${pct * 100}% ${stat}`,
+  description: `+${pct * 100}% ${stat}.`,
+  stats: { [stat]: pct },
+});
+export const TRAITS: Record<string, TraitDef> = Object.fromEntries(
+  [
+    statTrait("hp_up", "HP"),
+    statTrait("str_up", "STR"),
+    statTrait("vit_up", "VIT"),
+    statTrait("agi_up", "AGI"),
+    statTrait("dex_up", "DEX"),
+    statTrait("int_up", "INT"),
+    { id: "all_up", name: "Trait: +10% all stats", description: "+10% to every stat.", stats: { HP: 0.1, STR: 0.1, VIT: 0.1, AGI: 0.1, DEX: 0.1, INT: 0.1 } },
+  ].map((t) => [t.id, t]),
+);
+/** Each species' own trait. */
+export const SPECIES_TRAIT: Record<string, string> = {
+  green_slime: "hp_up",
+  horned_rabbit: "agi_up",
+  bog_toad: "int_up",
+  thorn_wolf: "str_up",
+  mire_bat: "dex_up",
+  moss_golem: "vit_up",
+  mirefang: "all_up",
+};
+/** Traits any pet can learn, and their price in pet points. */
+export const LEARNABLE_TRAITS = ["hp_up", "str_up", "vit_up", "agi_up", "dex_up", "int_up"] as const;
+export const TRAIT_COST = 50;
+/** Slots: 1 to start, another at 3 hearts and another at 5. */
+export const TRAIT_SLOT_HEARTS = [3, 5] as const;
+
+export function traitSlots(p: Pet, extra = 0): number {
+  return 1 + TRAIT_SLOT_HEARTS.filter((h) => heartsOf(p) >= h).length + extra;
+}
+
+/** Every trait this pet knows: its species' own (a breed has each parent species'), plus learned ones. */
+export function knownTraits(p: Pet): string[] {
+  const own = speciesParts(p.species).map((s) => SPECIES_TRAIT[s]).filter(Boolean);
+  return [...new Set([...own, ...(p.learned ?? [])])].filter((t) => TRAITS[t]);
+}
+
+/** The traits switched on now. A pet that never chose starts with its species' own. */
+export function activeTraits(p: Pet, extra = 0): string[] {
+  const known = knownTraits(p);
+  const chosen = (p.traits ?? known.slice(0, 1)).filter((t) => known.includes(t));
+  return chosen.slice(0, traitSlots(p, extra));
+}
+
+/** Learn a trait with pet points. */
+export function learnTrait(p: Pet, traitId: string) {
+  if (!(LEARNABLE_TRAITS as readonly string[]).includes(traitId)) throw new GameError("That trait can't be learned");
+  if (knownTraits(p).includes(traitId)) throw new GameError("Your pet already knows that trait");
+  if (p.petPoints < TRAIT_COST) throw new GameError(`Learning a trait costs ${TRAIT_COST} pet points`);
+  p.petPoints -= TRAIT_COST;
+  p.learned = [...(p.learned ?? []), traitId];
+}
+
+/** Choose which traits are on. */
+export function setTraits(p: Pet, ids: string[], extra = 0) {
+  const known = knownTraits(p);
+  const list = [...new Set(ids)];
+  if (list.some((t) => !known.includes(t))) throw new GameError("Your pet doesn't know that trait");
+  const slots = traitSlots(p, extra);
+  if (list.length > slots) throw new GameError(`This pet has ${slots} trait slot${slots === 1 ? "" : "s"}`);
+  p.traits = list;
+}
+
 /** Your stats that Shared Glory lends to the pet that's out. */
 export interface Glory {
   stats: Record<string, number>;
@@ -152,21 +236,22 @@ export interface Glory {
 }
 
 /** A pet's stats: its own numbers plus the points you placed (plus Shared Glory's share of yours, past the cap). */
-export function petStats(p: Pet, glory?: Glory | null): Record<PetStat, number> {
+export function petStats(p: Pet, glory?: Glory | null, extraSlots = 0): Record<PetStat, number> {
   const base = baseOf(p);
   const out = {} as Record<PetStat, number>;
-  const bond = 1 + BOND_STAT_PER_HEART * heartsOf(p);
+  const traits = activeTraits(p, extraSlots).map((t) => TRAITS[t]);
   for (const k of PET_STATS) {
-    // bond hearts lift every stat a little (past the cap: the cap is for placed points)
-    out[k] = Math.floor(Math.min(capOf(p, k), (base[k] ?? 0) + (p.stats[k] ?? 0)) * bond);
+    // bond hearts and traits lift stats past the cap (the cap is for placed points)
+    const mult = 1 + BOND_STAT_PER_HEART * heartsOf(p) + traits.reduce((n, t) => n + (t.stats[k] ?? 0), 0);
+    out[k] = Math.floor(Math.min(capOf(p, k), (base[k] ?? 0) + (p.stats[k] ?? 0)) * mult);
     if (glory && p.active) out[k] += Math.floor((glory.stats[k] ?? 0) * glory.share);
   }
   return out;
 }
 
 /** How a pet fights: bare-handed, with STR, like the monster it is. */
-export function petAttacker(p: Pet, glory?: Glory | null): Attacker {
-  return attackerFromPetStats(petStats(p, glory));
+export function petAttacker(p: Pet, glory?: Glory | null, extraSlots = 0): Attacker {
+  return attackerFromPetStats(petStats(p, glory, extraSlots));
 }
 
 /** The same, from the stats the browser gets. */
@@ -220,8 +305,9 @@ export function canChooseFirstPet(player: Player) {
   return CLASSES[player.classId]?.weapon === "tamer_wand" && player.pets.length === 0;
 }
 
-export function publicPet(p: Pet, glory?: Glory | null) {
-  const s = petStats(p, glory);
+export function publicPet(p: Pet, glory?: Glory | null, extraSlots = 0) {
+  const s = petStats(p, glory, extraSlots);
+  const on = activeTraits(p, extraSlots);
   return {
     id: p.id,
     species: p.species,
@@ -240,6 +326,9 @@ export function publicPet(p: Pet, glory?: Glory | null) {
     bond: p.bond ?? 0,
     hearts: heartsOf(p),
     nextHeart: BOND_HEARTS[heartsOf(p)] ?? null,
+    slots: traitSlots(p, extraSlots),
+    traits: knownTraits(p).map((id) => ({ id, name: TRAITS[id].name, description: TRAITS[id].description, on: on.includes(id) })),
+    learnable: LEARNABLE_TRAITS.filter((t) => !knownTraits(p).includes(t)).map((id) => ({ id, name: TRAITS[id].name, cost: TRAIT_COST })),
   };
 }
 
@@ -275,6 +364,8 @@ export function breed(a: Pet, b: Pet, id: string, now = new Date()): Pet {
   baby.base = base;
   baby.caps = caps;
   baby.parents = [a.species, b.species];
+  // what the parents learned, the baby knows (each parent species' own trait comes with the breed)
+  baby.learned = [...new Set([...(a.learned ?? []), ...(b.learned ?? [])])];
   baby.freePoints = BREED_BONUS_POINTS;
   return baby;
 }
