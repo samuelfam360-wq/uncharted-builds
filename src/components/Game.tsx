@@ -16,6 +16,8 @@ const Game3D = dynamic(() => import("./three/Game3D"), {
 type View = "3d" | "2d";
 const VIEW_KEY = "ub-view";
 import { InputBus, useButtons, useKeyboard } from "./world/input";
+import SoundControls from "./world/SoundControls";
+import { setMusic, sfx } from "@/lib/sound";
 import MenuPanels from "./world/MenuPanels";
 
 type GameState = Awaited<ReturnType<typeof getState>>;
@@ -131,7 +133,12 @@ export default function Game() {
     unlocks.length > 0,
   );
 
-  const onUnlocks = useCallback((u: UnlockNotice[]) => setUnlocks((q) => [...q, ...u]), []);
+  const onUnlocks = useCallback((u: UnlockNotice[]) => {
+    if (u.length) sfx("unlock");
+    setUnlocks((q) => [...q, ...u]);
+  }, []);
+  // the music stops when you leave the game
+  useEffect(() => () => setMusic(null), []);
   const registerSync = useCallback((fns: { flush: () => Promise<void>; adopt: () => void }) => {
     sync.current = fns;
   }, []);
@@ -198,6 +205,7 @@ export default function Game() {
             void refresh();
           }}
         >
+          <SoundControls />
           <MenuPanels state={state} busy={busy} inBattle={false} run={run} />
         </Sheet>
       )}

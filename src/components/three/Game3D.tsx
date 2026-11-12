@@ -1,5 +1,6 @@
 "use client";
 
+import { setMusic, soundState } from "@/lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/client";
 import { ITEMS, MONSTERS, ZONES } from "@/lib/game/data/world";
@@ -335,7 +336,7 @@ export default function Game3D({
         engineRef.current = e;
         setEngine(e);
         // for local play-testing only
-        if (process.env.NODE_ENV !== "production") (window as unknown as { __ub3d?: unknown }).__ub3d = { engine: e, world: worldRef.current };
+        if (process.env.NODE_ENV !== "production") (window as unknown as { __ub3d?: unknown }).__ub3d = { engine: e, world: worldRef.current, sound: soundState };
         adoptNext.current = false;
         setReady(true);
         setBanner(ZONES[zone].name);
@@ -704,6 +705,9 @@ export default function Game3D({
         }
       }
       e.update(dt, now);
+      // the tune follows where you are
+      const kind = ZONES[e.map.zoneId].kind;
+      setMusic(kind === "town" ? "town" : kind === "dungeon" ? "cave" : "field");
       // size the 3D view to the screen
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const cw = wrap.clientWidth;

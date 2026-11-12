@@ -1,6 +1,7 @@
 // The live side-view game: movement, ladders, monsters, real-time combat and parry.
 // No drawing and no React here. The page drives it with update() and reads its state.
 
+import { sfx } from "@/lib/sound";
 import { WEAPONS } from "@/lib/game/constants";
 import { ITEMS, MONSTERS, ZONES, type EnemyAttack } from "@/lib/game/data/world";
 import {
@@ -183,6 +184,8 @@ export interface Player {
 
 export interface Monster {
   uid: number;
+  /** Wolf's Scars: 1, or less while it is slowed inside your aura. */
+  scarSlow?: number;
   id: string;
   x: number;
   y: number;
@@ -753,7 +756,11 @@ export class Engine {
     const attackingOnGround = p.onGround && now < p.attackUntil;
     if (now >= p.controlLockUntil) p.vx = p.blocking || attackingOnGround || p.castUntil > now ? 0 : dir * speed;
     if (dir !== 0 && now >= p.attackUntil && !p.blocking) p.facing = dir as 1 | -1;
-    if (p.vx !== 0 && p.onGround) p.walkT += dt * 1000;
+    if (p.vx !== 0 && p.onGround) {
+      const before = Math.floor(p.walkT / 300);
+      p.walkT += dt * 1000;
+      if (Math.floor(p.walkT / 300) !== before) sfx("step");
+    }
 
     p.vy = Math.min(MAX_FALL, p.vy + GRAVITY * dt);
     const x0 = p.x;
@@ -899,6 +906,7 @@ export class Engine {
         return;
       }
       p.vy = -JUMP_SPEED;
+      sfx("jump");
       p.onGround = false;
       return;
     }
@@ -931,6 +939,7 @@ export class Engine {
     const item = ITEMS[food.itemId];
     this.acc.itemsUsed.push(item.id);
     const heal = this.healPlayer(item.heal ?? 0, "food");
+    sfx("eat");
     this.acc.dirty = true;
     if (this.bossFight) this.bossFight.items = true;
     if (this.fight) this.fight.items = true;
@@ -1054,6 +1063,7 @@ export class Engine {
     if (cost > p.mp && !blood) return this.events.toast("Not enough MP.");
     if (this.now < (p.skillReady[s.id] ?? 0) || this.now < p.globalReady) return;
     const castId = ++this.castSeq;
+    sfx("cast");
     if (blood) {
       const hpCost = Math.ceil(p.maxHp * bs!.hp_per_mp * cost);
       if (p.hp <= hpCost) return this.events.toast("Not enough HP to cast with blood.");
@@ -1191,6 +1201,7 @@ export class Engine {
       p.attackStart = now;
       p.attackUntil = now + Math.min(feel.interval - 40, 360);
       p.attackResolved = false;
+      sfx(feel.projectile ? "shoot" : "swing");
       // a lance attack after a long run is a charge; one in the air is a jump attack
       p.chargeRun = this.weapon === "lance" && p.onGround ? p.runDist : 0;
       p.runDist = 0;
@@ -1596,6 +1607,7 @@ export class Engine {
     if (m.spawnIndex >= 0) this.spawnTimers.set(m.spawnIndex, this.now + RESPAWN_MS);
     this.fxAdd("heal", m.x, m.y - MONSTER_LOOKS[m.id].body.h / 2, 50, 700, "#9fe39f");
     this.text(m.x, m.y - MONSTER_LOOKS[m.id].body.h - 20, "TAMED!", "#9fe39f", 28);
+    sfx("tame");
     if (this.fight) this.fight.kills++;
     const t = this.tameOf(m);
     this.emit("tame", {
@@ -1710,6 +1722,7 @@ export class Engine {
     else m.fight!.direct += dmg;
     m.flashUntil = this.now + 120;
     m.showHpUntil = this.now + 4000;
+    sfx(big ? "crit" : "hit");
     this.text(m.x, top - 8, `${dmg}`, big ? "#ff4f6d" : "#ffb347", big ? 34 : 28, hit.crit ? "!" : "");
     this.fxAdd("spark", m.x - p.facing * 6, top + MONSTER_LOOKS[m.id].body.h / 2, 18, 200, hit.crit ? "#ff4f6d" : "#ffe08a");
     if (m.state !== "windup" || !MONSTERS[m.id].isBoss) {
@@ -1822,6 +1835,7 @@ export class Engine {
 
   private killMonster(m: Monster) {
     const p = this.player;
+    sfx("defeat");
     m.state = "dead";
     m.diedAt = this.now;
     m.hp = 0;
@@ -1943,6 +1957,8 @@ export class Engine {
       // Wolf's Scars: monsters near you move slower
       const scars = this.combat.passive.scar_aura;
       const scarred = scars && !p.dead && Math.hypot(p.x - m.x, p.y - m.y) <= scars.radius ? 1 - scars.slow : 1;
+      // ...and everything else they do is slower too: wind-ups, lunges, and the wait between attacks
+      m.scarSlow = scarred;
       const speed = ai.speed * (m.statuses.slow ? 0.5 : 1) * scarred;
       const dx = p.x - m.x;
       const dy = p.y - m.y;
@@ -1966,7 +1982,7 @@ export class Engine {
       }
       if (m.state === "recover") {
         if (now < m.dashUntil) {
-          m.x = Math.max(m.span[0], Math.min(m.span[1], m.x + m.facing * 420 * dt));
+          m.x = Math.max(m.span[0], Math.min(m.span[1], m.x + m.facing * 420 * scarred * dt));
         }
         if (now >= m.stateUntil) m.state = m.aggro ? "chase" : "patrol";
         continue;
@@ -2008,7 +2024,7 @@ export class Engine {
             const sp = ai.special?.[choice.name];
             m.attack = choice;
             m.state = "windup";
-            m.stateUntil = now + (sp ? sp.windup : ai.windup);
+            m.stateUntil = now + (sp ? sp.windup : ai.windup) / scarred;
             if (sp) this.text(m.x, m.y - look.body.h - 70, `${choice.name}!`, "#ffd34d", 18);
           }
         }
@@ -2074,8 +2090,9 @@ export class Engine {
     const p = this.player;
     m.state = "recover";
     m.struckAt = this.now;
-    m.stateUntil = this.now + ai.recover;
-    m.nextAttackAt = this.now + ai.recover + 300 + Math.random() * 600;
+    const slow = m.scarSlow ?? 1; // Wolf's Scars
+    m.stateUntil = this.now + ai.recover / slow;
+    m.nextAttackAt = this.now + (ai.recover + 300 + Math.random() * 600) / slow;
     // paralysis: half the time the blow never comes
     if (m.statuses.paralysis && this.rng() < 0.5) {
       this.text(m.x, m.y - look.body.h - 10, "...", "#c8c8d0", 20);
@@ -2116,6 +2133,7 @@ export class Engine {
     if (this.combat.passive.slime_mercy?.monsters.includes(m.id)) {
       p.invulnUntil = this.now + HURT_INVULN_MS;
       this.text(p.x, p.y - PLAYER_H - 10, "BOING!", "#7be08a", 24);
+      sfx("block");
       return;
     }
     // PARRY: block pressed just before the blow
@@ -2142,6 +2160,7 @@ export class Engine {
       p.counterUntil = this.now + 1600;
       p.blockStart = -1e9; // one parry per press
       this.text(p.x, p.y - PLAYER_H - 16, "PARRY!", "#7fe0ff", 30);
+      sfx("parry");
       this.fxAdd("parry", p.x + p.facing * 24, p.y - 46, 36, 380, "#7fe0ff");
       return;
     }
@@ -2185,6 +2204,7 @@ export class Engine {
       this.dodgeStreak++;
       this.dodgeStreakBest = Math.max(this.dodgeStreakBest, this.dodgeStreak);
       this.text(p.x, p.y - PLAYER_H - 10, "MISS", "#c8c8d0", 24);
+      sfx("miss");
       if (this.combat.passive.dodge_invisibility) {
         p.invisibleUntil = this.now + this.combat.passive.dodge_invisibility * TICK_MS;
         for (const x of this.monsters) if (x.spawnIndex >= 0) x.aggro = false;
@@ -2276,6 +2296,7 @@ export class Engine {
     p.hp -= dmg;
     this.acc.dirty = true;
     if (source === "enemy") {
+      sfx(p.blocking ? "block" : "hurt");
       p.invulnUntil = this.now + HURT_INVULN_MS;
       p.hurtUntil = this.now + 300;
     }
@@ -2351,6 +2372,7 @@ export class Engine {
     const p = this.player;
     p.dead = true;
     p.diedAt = this.now;
+    sfx("die");
     p.hp = 0;
     p.onLadder = false;
     p.blocking = false;
@@ -2439,6 +2461,7 @@ export class Engine {
     if (r.hp < sent.hp && !p.dead) p.hp = Math.max(1, p.hp - (sent.hp - r.hp));
     if (r.mp < sent.mp) p.mp = Math.max(0, p.mp - (sent.mp - r.mp));
     if (r.run) this.setRun(r.run);
+    if (r.levelUp) sfx("levelup");
   }
 
   /** New numbers from the server (after levelling up, resting, spending points, changing skills). */

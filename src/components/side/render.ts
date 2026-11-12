@@ -560,17 +560,37 @@ function drawPlayer(ctx: Ctx, e: Engine, info: DrawInfo) {
     ctx.ellipse(0, 0, 20, 5, 0, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Wolf's Scars: a faint ring shows how far the aura reaches
+  // Wolf's Scars: a breathing red ring with claw scars sweeping round it
   const scars = e.combat.passive.scar_aura;
   if (scars && !p.dead) {
+    const R = scars.radius;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 420);
     ctx.save();
-    ctx.strokeStyle = "rgba(190,60,60,0.35)";
-    ctx.lineWidth = 3;
-    ctx.setLineDash([10, 8]);
-    ctx.lineDashOffset = -now / 40;
+    ctx.translate(0, -PLAYER_H / 2);
+    ctx.scale(1, 0.45);
+    ctx.strokeStyle = `rgba(255,70,60,${0.3 + 0.25 * pulse})`;
+    ctx.lineWidth = 3 + 3 * pulse;
     ctx.beginPath();
-    ctx.ellipse(0, -PLAYER_H / 2, scars.radius, scars.radius * 0.45, 0, 0, Math.PI * 2);
+    ctx.arc(0, 0, R, 0, Math.PI * 2);
     ctx.stroke();
+    // a ripple rolling outward
+    const wave = (now / 1600) % 1;
+    ctx.strokeStyle = `rgba(255,70,60,${0.28 * (1 - wave)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, R * (0.3 + 0.7 * wave), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineCap = "round";
+    for (let s3 = 0; s3 < 3; s3++) {
+      const base = now / 1100 + (s3 * Math.PI * 2) / 3;
+      for (let k = 0; k < 3; k++) {
+        ctx.strokeStyle = `rgba(255,${120 - k * 20},${90 - k * 20},0.75)`;
+        ctx.lineWidth = 5 - k;
+        ctx.beginPath();
+        ctx.arc(0, 0, R * (0.66 + k * 0.085), base - k * 0.1 - (0.95 - k * 0.12) / 2, base - k * 0.1 + (0.95 - k * 0.12) / 2);
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
   if (now < p.invulnUntil && Math.floor(now / 90) % 2 === 0) ctx.globalAlpha = 0.45;

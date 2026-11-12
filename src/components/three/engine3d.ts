@@ -7,6 +7,7 @@
 // screen y), so the ground is y = 0 and a jump takes y below 0.
 // Facing is a yaw angle: forward is (sin yaw, cos yaw) on x/z.
 
+import { sfx } from "@/lib/sound";
 import { WEAPONS } from "@/lib/game/constants";
 import { ITEMS, MONSTERS, ZONES, type EnemyAttack } from "@/lib/game/data/world";
 import {
@@ -205,6 +206,8 @@ export interface Player {
 
 export interface Monster {
   uid: number;
+  /** Wolf's Scars: 1, or less while it is slowed inside your aura. */
+  scarSlow?: number;
   id: string;
   x: number;
   y: number; // height, up negative
@@ -573,6 +576,7 @@ export class Engine3D {
   /** Move to another map (x, z in tiles). The page sends a sync report first. */
   setMap(mapId: Map3DId, x: number, z: number, run: Engine3D["run"]) {
     const p = this.player;
+    sfx("portal");
     this.map = MAPS3D[mapId];
     this.solids = solidCircles(this.map);
     this.run = run;
@@ -823,7 +827,11 @@ export class Engine3D {
       const d = angDiff(p.yaw, want);
       p.yaw += Math.sign(d) * Math.min(Math.abs(d), TURN_SPEED * dt);
     }
-    if ((p.vx !== 0 || p.vz !== 0) && p.onGround) p.walkT += dt * 1000 * Math.min(1, Math.hypot(p.vx, p.vz) / speed);
+    if ((p.vx !== 0 || p.vz !== 0) && p.onGround) {
+      const before = Math.floor(p.walkT / 300);
+      p.walkT += dt * 1000 * Math.min(1, Math.hypot(p.vx, p.vz) / speed);
+      if (Math.floor(p.walkT / 300) !== before) sfx("step");
+    }
 
     const x0 = p.x;
     const z0 = p.z;
@@ -896,6 +904,7 @@ export class Engine3D {
     if (k === "jump") {
       if (!this.canAct() || p.blocking || !p.onGround) return;
       p.vy = -JUMP_SPEED;
+      sfx("jump");
       p.onGround = false;
       return;
     }
@@ -915,6 +924,7 @@ export class Engine3D {
     const item = ITEMS[food.itemId];
     this.acc.itemsUsed.push(item.id);
     const heal = this.healPlayer(item.heal ?? 0, "food");
+    sfx("eat");
     this.acc.dirty = true;
     if (this.bossFight) this.bossFight.items = true;
     if (this.fight) this.fight.items = true;
@@ -1041,6 +1051,7 @@ export class Engine3D {
     if (cost > p.mp && !blood) return this.events.toast("Not enough MP.");
     if (this.now < (p.skillReady[s.id] ?? 0) || this.now < p.globalReady) return;
     const castId = ++this.castSeq;
+    sfx("cast");
     if (blood) {
       const hpCost = Math.ceil(p.maxHp * bs!.hp_per_mp * cost);
       if (p.hp <= hpCost) return this.events.toast("Not enough HP to cast with blood.");
@@ -1228,6 +1239,7 @@ export class Engine3D {
       p.attackStart = now;
       p.attackUntil = now + Math.min(feel.interval - 40, 360);
       p.attackResolved = false;
+      sfx(feel.projectile ? "shoot" : "swing");
       // a lance attack after a long run is a charge; one in the air is a jump attack
       p.chargeRun = this.weapon === "lance" && p.onGround ? p.runDist : 0;
       p.runDist = 0;
@@ -1629,6 +1641,7 @@ export class Engine3D {
     if (m.spawnIndex >= 0) this.spawnTimers.set(m.spawnIndex, this.now + RESPAWN_MS);
     this.fxAdd("heal", m, m.y - MONSTER_LOOKS[m.id].body.h / 2, 50, 700, "#9fe39f");
     this.text(m, m.y - MONSTER_LOOKS[m.id].body.h - 20, "TAMED!", "#9fe39f", 28);
+    sfx("tame");
     if (this.fight) this.fight.kills++;
     const t = this.tameOf(m);
     this.emit("tame", {
@@ -1734,6 +1747,7 @@ export class Engine3D {
     const top = m.y - MONSTER_LOOKS[m.id].body.h;
     if (hit.miss) {
       this.text(m, top - 8, "MISS", "#c8c8d0", 22);
+      sfx("miss");
       return;
     }
     const dmg = hit.dmg;
@@ -1743,6 +1757,7 @@ export class Engine3D {
     else m.fight!.direct += dmg;
     m.flashUntil = this.now + 120;
     m.showHpUntil = this.now + 4000;
+    sfx(big ? "crit" : "hit");
     this.text(m, top - 8, `${dmg}`, big ? "#ff4f6d" : "#ffb347", big ? 34 : 28, hit.crit ? "!" : "");
     this.fxAdd("spark", m, top + MONSTER_LOOKS[m.id].body.h / 2, 18, 200, hit.crit ? "#ff4f6d" : "#ffe08a");
     if (m.state !== "windup" || !MONSTERS[m.id].isBoss) {
@@ -1856,6 +1871,7 @@ export class Engine3D {
 
   private killMonster(m: Monster) {
     const p = this.player;
+    sfx("defeat");
     m.state = "dead";
     m.diedAt = this.now;
     m.hp = 0;
@@ -1998,6 +2014,8 @@ export class Engine3D {
       // Wolf's Scars: monsters near you move slower
       const scars = this.combat.passive.scar_aura;
       const scarred = scars && !p.dead && Math.hypot(p.x - m.x, p.z - m.z, p.y - m.y) <= scars.radius ? 1 - scars.slow : 1;
+      // ...and everything else they do is slower too: wind-ups, lunges, and the wait between attacks
+      m.scarSlow = scarred;
       const speed = ai.speed * (m.statuses.slow ? 0.5 : 1) * scarred;
       const dist = flat(p, m);
       const dy = p.y - m.y;
@@ -2022,7 +2040,7 @@ export class Engine3D {
       if (m.state === "recover") {
         if (now < m.dashUntil) {
           const f = fwd(m.yaw);
-          this.moveMonster(m, m.x + f.x * 420 * dt, m.z + f.z * 420 * dt);
+          this.moveMonster(m, m.x + f.x * 420 * scarred * dt, m.z + f.z * 420 * scarred * dt);
         }
         if (now >= m.stateUntil) m.state = m.aggro ? "chase" : "patrol";
         continue;
@@ -2065,8 +2083,11 @@ export class Engine3D {
             const sp = ai.special?.[choice.name];
             m.attack = choice;
             m.state = "windup";
-            m.stateUntil = now + (sp ? sp.windup : ai.windup);
-            if (sp) this.text(m, m.y - look.body.h - 70, `${choice.name}!`, "#ffd34d", 18);
+            m.stateUntil = now + (sp ? sp.windup : ai.windup) / scarred;
+            if (sp) {
+              this.text(m, m.y - look.body.h - 70, `${choice.name}!`, "#ffd34d", 18);
+              sfx("roar");
+            }
           }
         }
       } else {
@@ -2134,8 +2155,9 @@ export class Engine3D {
     const p = this.player;
     m.state = "recover";
     m.struckAt = this.now;
-    m.stateUntil = this.now + ai.recover;
-    m.nextAttackAt = this.now + ai.recover + 300 + Math.random() * 600;
+    const slow = m.scarSlow ?? 1; // Wolf's Scars
+    m.stateUntil = this.now + ai.recover / slow;
+    m.nextAttackAt = this.now + (ai.recover + 300 + Math.random() * 600) / slow;
     // paralysis: half the time the blow never comes
     if (m.statuses.paralysis && this.rng() < 0.5) {
       this.text(m, m.y - look.body.h - 10, "...", "#c8c8d0", 20);
@@ -2194,6 +2216,7 @@ export class Engine3D {
     if (this.combat.passive.slime_mercy?.monsters.includes(m.id)) {
       p.invulnUntil = this.now + HURT_INVULN_MS;
       this.text(p, p.y - PLAYER_H - 10, "BOING!", "#7be08a", 24);
+      sfx("block");
       return;
     }
     // PARRY: block pressed just before the blow
@@ -2220,6 +2243,7 @@ export class Engine3D {
       p.counterUntil = this.now + 1600;
       p.blockStart = -1e9; // one parry per press
       this.text(p, p.y - PLAYER_H - 16, "PARRY!", "#7fe0ff", 30);
+      sfx("parry");
       this.fxAdd("parry", this.ahead(24), p.y - 46, 36, 380, "#7fe0ff");
       return;
     }
@@ -2264,6 +2288,7 @@ export class Engine3D {
       this.dodgeStreak++;
       this.dodgeStreakBest = Math.max(this.dodgeStreakBest, this.dodgeStreak);
       this.text(p, p.y - PLAYER_H - 10, "MISS", "#c8c8d0", 24);
+      sfx("miss");
       if (this.combat.passive.dodge_invisibility) {
         p.invisibleUntil = this.now + this.combat.passive.dodge_invisibility * TICK_MS;
         for (const x of this.monsters) if (x.spawnIndex >= 0) x.aggro = false;
@@ -2355,6 +2380,7 @@ export class Engine3D {
     p.hp -= dmg;
     this.acc.dirty = true;
     if (source === "enemy") {
+      sfx(p.blocking ? "block" : "hurt");
       p.invulnUntil = this.now + HURT_INVULN_MS;
       p.hurtUntil = this.now + 300;
     }
@@ -2430,6 +2456,7 @@ export class Engine3D {
     const p = this.player;
     p.dead = true;
     p.diedAt = this.now;
+    sfx("die");
     p.hp = 0;
     p.blocking = false;
     this.pendingHits = [];
@@ -2517,6 +2544,7 @@ export class Engine3D {
     if (r.hp < sent.hp && !p.dead) p.hp = Math.max(1, p.hp - (sent.hp - r.hp));
     if (r.mp < sent.mp) p.mp = Math.max(0, p.mp - (sent.mp - r.mp));
     if (r.run) this.setRun(r.run);
+    if (r.levelUp) sfx("levelup");
   }
 
   /** New numbers from the server (after levelling up, resting, spending points, changing skills). */
