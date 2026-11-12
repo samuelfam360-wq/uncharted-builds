@@ -243,13 +243,14 @@ export class World3D {
     // light and air
     const skyMat = this.sky.material as THREE.ShaderMaterial;
     if (cave) {
-      this.scene.background = new THREE.Color("#1d1830");
-      this.scene.fog = new THREE.Fog("#1d1830", 8, 34);
+      // dim, but you can still read the floor, the walls and a dark monster
+      this.scene.background = new THREE.Color("#2b2452");
+      this.scene.fog = new THREE.Fog("#2b2452", 12, 44);
       this.sky.visible = false;
-      this.hemi.color.set("#9a8cff");
-      this.hemi.groundColor.set("#2a3a3a");
-      this.hemi.intensity = 0.8;
-      this.sun.intensity = 0.45;
+      this.hemi.color.set("#b3a8ff");
+      this.hemi.groundColor.set("#4a5a66");
+      this.hemi.intensity = 1.25;
+      this.sun.intensity = 0.7;
       this.sun.color.set("#b8a8ff");
       this.glow.intensity = 3;
     } else {
