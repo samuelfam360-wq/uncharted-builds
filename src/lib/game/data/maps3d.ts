@@ -25,7 +25,8 @@ export interface Npc3D {
   id: string;
   x: number;
   z: number;
-  look: NpcDef["look"];
+  /** body: the animated 3D body (see BODY_OPTIONS). */
+  look: NpcDef["look"] & { body?: string };
   talk: "rumors";
 }
 
@@ -180,8 +181,8 @@ const thornvale: Map3D = (() => {
     d,
     buildings,
     npcs: [
-      { id: "villager_a", x: 18.5, z: 15, look: { skin: "#eec39a", hair: "#6b4226", shirt: "#5b8bd9", hairStyle: "Short", female: false }, talk: "rumors" },
-      { id: "villager_b", x: 31, z: 20, look: { skin: "#c68642", hair: "#ececec", shirt: "#9b6bd1", hairStyle: "Long", female: true }, talk: "rumors" },
+      { id: "villager_a", x: 18.5, z: 15, look: { skin: "#eec39a", hair: "#6b4226", shirt: "#5b8bd9", hairStyle: "Short", female: false, body: "Rogue" }, talk: "rumors" },
+      { id: "villager_b", x: 31, z: 20, look: { skin: "#c68642", hair: "#ececec", shirt: "#9b6bd1", hairStyle: "Long", female: true, body: "Mage" }, talk: "rumors" },
     ],
     portals: [{ x: 43, z: 17, to: "mirewood_fields", toX: 3.5, toZ: 30, label: "Mirewood Fields", kind: "walk" }],
     signs: [{ x: 40, z: 15, zoneId: "thornvale" }],

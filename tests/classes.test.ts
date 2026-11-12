@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { derive, freeStartingPoints, newCharacter } from "../src/lib/game/character";
 import { resolveTurn, startBattle, type Rng } from "../src/lib/game/combat";
 import { WEAPONS } from "../src/lib/game/constants";
-import { APPEARANCE_KEYS, APPEARANCE_OPTIONS, CLASSES, DEFAULT_APPEARANCE } from "../src/lib/game/data/classes";
+import { APPEARANCE_KEYS, APPEARANCE_OPTIONS, BODY_OPTIONS, CLASS_BODY, CLASSES, DEFAULT_APPEARANCE } from "../src/lib/game/data/classes";
+import { lookFor } from "../src/components/side/hero";
 import { MONSTERS } from "../src/lib/game/data/world";
 import { MemoryStore } from "../src/lib/store/memory";
 import * as game from "../src/lib/game/service";
@@ -87,8 +88,24 @@ describe("appearance", () => {
       { name: "Look", classId: "mage", appearance: { gender: "Female", hairColor: "Red", eyeColor: "<script>", build: 5 }, stats: {} },
       "p",
     );
-    expect(p.appearance).toEqual({ ...DEFAULT_APPEARANCE, gender: "Female", hairColor: "Red" });
+    const { body: _unpicked, ...rest } = DEFAULT_APPEARANCE;
+    void _unpicked;
+    // no 3D body picked: none is saved, so the 3D view gives one that matches the class
+    expect(p.appearance).toEqual({ ...rest, gender: "Female", hairColor: "Red" });
     for (const k of APPEARANCE_KEYS) expect(APPEARANCE_OPTIONS[k].options).toContain(DEFAULT_APPEARANCE[k]);
+  });
+
+  it("keeps a picked 3D body and drops an unknown one", () => {
+    const make = (body: unknown) => newCharacter({ name: "Body", classId: "mage", appearance: { body }, stats: {} }, "p").appearance.body;
+    expect(make("Hooded Rogue")).toBe("Hooded Rogue");
+    expect(make("Dragon")).toBeUndefined();
+  });
+
+  it("gives players without a 3D body one that matches their class", () => {
+    expect(lookFor({ ...DEFAULT_APPEARANCE, body: undefined }, "mage").body).toBe("Mage");
+    expect(lookFor({ ...DEFAULT_APPEARANCE, body: undefined }, "assassin").body).toBe("Hooded Rogue");
+    expect(lookFor({ ...DEFAULT_APPEARANCE, body: "Barbarian" }, "mage").body).toBe("Barbarian");
+    for (const id of CLASS_IDS) expect(BODY_OPTIONS).toContain(CLASS_BODY[id]);
   });
 
   it("is shown in the player's state", async () => {
