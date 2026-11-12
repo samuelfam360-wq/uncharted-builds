@@ -218,6 +218,7 @@ export interface Monster {
   lastCharge?: number; // the last hit was a lance charge (share of a full run)
   lastAir?: boolean; // the last hit was a lance attack made in the air
   lastPet?: boolean; // the last hit was your pet's
+  lastPetId?: string; // ...and which pet
   tame?: TameState; // progress toward its species' hidden taming condition, this fight
   foreseen?: EnemyAttack; // Beast Tongue: the attack it will use next, shown early
 }
@@ -238,6 +239,7 @@ export interface TameState {
 
 /** Your pet that's out: it follows you and bites what you fight. */
 export interface PetUnit {
+  id: string;
   species: string;
   attacker: Attacker;
   x: number;
@@ -435,7 +437,11 @@ export class Engine {
   private waveId = 1;
   private fight: FightState | null = null;
   clones: Clone[] = [];
-  pet: PetUnit | null = null;
+  pets: PetUnit[] = [];
+  /** The first pet out (most players have one). */
+  get pet(): PetUnit | null {
+    return this.pets[0] ?? null;
+  }
   /** Silent Finish: stealth kills in a row. */
   stealthChain = 0;
   /** Seven Strikes: hits in the current combo. */
@@ -542,18 +548,25 @@ export class Engine {
     this.fx = [];
     this.pendingHits = [];
     this.clones = [];
-    if (this.pet) Object.assign(this.pet, { x: p.x - 50, y: p.y, nextAt: 0 });
+    this.pets.forEach((pt, i) => Object.assign(pt, { x: p.x - 50 - i * 40, y: p.y, nextAt: 0 }));
     this.spawnTimers.clear();
     this.endFight(false);
     this.spawnAll();
   }
 
   /** Send a pet out beside you (null: none). */
-  setPet(info: { species: string; attacker: Attacker } | null) {
-    if (!info) return void (this.pet = null);
-    if (this.pet && this.pet.species === info.species) return void (this.pet.attacker = info.attacker);
+  setPet(info: { id?: string; species: string; attacker: Attacker } | null) {
+    this.setPets(info ? [{ id: info.id ?? "pet", species: info.species, attacker: info.attacker }] : []);
+  }
+
+  /** The pets out beside you: ones already out keep their place. */
+  setPets(list: { id: string; species: string; attacker: Attacker }[]) {
     const p = this.player;
-    this.pet = { species: info.species, attacker: info.attacker, x: p.x - p.facing * 50, y: p.y, facing: p.facing, nextAt: 0, walkT: 0, moving: false, struckAt: -1e9 };
+    this.pets = list.map((info, i) => {
+      const had = this.pets.find((x) => x.id === info.id && x.species === info.species);
+      if (had) return Object.assign(had, { attacker: info.attacker });
+      return { id: info.id, species: info.species, attacker: info.attacker, x: p.x - p.facing * (50 + i * 40), y: p.y, facing: p.facing, nextAt: 0, walkT: 0, moving: false, struckAt: -1e9 };
+    });
   }
 
   private spawnAll() {
@@ -1191,7 +1204,7 @@ export class Engine {
     this.updatePlayerStatus();
     this.updateRespawns();
     this.updateClones();
-    this.updatePet(dtMs);
+    this.pets.forEach((pt, i) => this.updatePet(pt, i, dtMs));
     this.tameHints();
     this.updateFight();
     if (this.run) this.spawnRoom();
@@ -1441,10 +1454,8 @@ export class Engine {
   // ---------- pets and taming ----------
 
   /** Your pet follows you, and bites the nearest monster you're fighting. */
-  private updatePet(dtMs: number) {
-    const pet = this.pet;
+  private updatePet(pet: PetUnit, slot: number, dtMs: number) {
     const p = this.player;
-    if (!pet) return;
     const target = p.dead
       ? undefined
       : this.monsters
@@ -1458,7 +1469,7 @@ export class Engine {
       goalX = target.x + side * (MONSTER_LOOKS[target.id].body.w / 2 + 22);
       goalY = target.y;
     } else {
-      goalX = p.x - p.facing * 56;
+      goalX = p.x - p.facing * (56 + slot * 44);
       goalY = p.y;
     }
     const dx = goalX - pet.x;
@@ -1470,7 +1481,7 @@ export class Engine {
     }
     pet.y += (goalY - pet.y) * Math.min(1, dtMs / 120);
     // too far behind (a ladder, a jump): catch up at once
-    if (Math.abs(pet.x - p.x) > 700 || Math.abs(pet.y - p.y) > 300) Object.assign(pet, { x: p.x - p.facing * 56, y: p.y });
+    if (Math.abs(pet.x - p.x) > 700 || Math.abs(pet.y - p.y) > 300) Object.assign(pet, { x: p.x - p.facing * (56 + slot * 44), y: p.y });
     if (!target || this.now < pet.nextAt) return;
     if (Math.abs(target.x - pet.x) > MONSTER_LOOKS[target.id].body.w / 2 + 40 || Math.abs(target.y - pet.y) > 60) return;
     pet.nextAt = this.now + PET_ATTACK_MS;
@@ -1478,7 +1489,7 @@ export class Engine {
     pet.facing = target.x >= pet.x ? 1 : -1;
     const spec = attackSpec("unarmed", pet.attacker);
     const r = rollHit(this.rng, spec, pet.attacker, this.defenderOf(target), 1);
-    this.applyHit(target, { pet: true, dmg: r.miss ? 0 : r.dmg, crit: r.crit, miss: r.miss });
+    this.applyHit(target, { pet: true, dmg: r.miss ? 0 : r.dmg, crit: r.crit, miss: r.miss }, undefined, pet.id);
   }
 
   private tameOf(m: Monster): TameState {
@@ -1641,12 +1652,13 @@ export class Engine {
   }
 
   /** Put a finished hit on a monster and into the report. */
-  private applyHit(m: Monster, hit: ReportHit, status?: AttackSpec["status"]) {
+  private applyHit(m: Monster, hit: ReportHit, status?: AttackSpec["status"], petId?: string) {
     const p = this.player;
     this.acc.hits.push(hit);
     if (!hit.miss) {
       m.lastSkill = hit.pet ? undefined : hit.skillId;
       m.lastPet = !!hit.pet;
+      m.lastPetId = petId;
     }
     this.acc.dirty = true;
     this.engage(m);
@@ -1801,6 +1813,7 @@ export class Engine {
       jumpKill: m.lastAir || undefined,
       petToTarget: f.pet,
       petKill: m.lastPet || undefined,
+      petKillId: m.lastPet ? m.lastPetId : undefined,
       monsterId: m.id,
       directToTarget: f.direct,
       indirectToTarget: f.indirect,

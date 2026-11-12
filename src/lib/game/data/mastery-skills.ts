@@ -570,8 +570,7 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     description: "Summon limit +1: one more pet can be out at a time. Needs a tamer wand in hand.",
     kind: "passive",
     conditions: { counter: "max_pack_fights", op: ">=", value: 100 },
-    effect: {},
-    enabled: false, // waits for more than one pet out at a time
+    effect: { weapons: ["tamer_wand"], passive: { pack_leader: { extra: 1 } } },
   }),
   def({
     id: "kindred_spirit",

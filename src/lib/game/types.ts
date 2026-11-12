@@ -251,6 +251,8 @@ export interface PassiveEffect {
   foe_bane?: { monsters: string[]; mult: number };
   /** Wolf's Scars: monsters within this distance of you move slower. */
   scar_aura?: { radius: number; slow: number };
+  /** Pack Leader: this many more pets can be out at once. */
+  pack_leader?: { extra: number };
 }
 
 export interface SkillEffect {
