@@ -575,11 +575,10 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
   def({
     id: "kindred_spirit",
     name: "Kindred Spirit",
-    description: "Every pet gets +1 trait slot.",
+    description: "Every pet gets +1 trait slot. Needs a tamer wand in hand.",
     kind: "passive",
     conditions: { counter: "max_bond_pets", op: ">=", value: 5 },
-    effect: {},
-    enabled: false, // waits for pet bond and traits (not designed yet)
+    effect: { weapons: ["tamer_wand"], passive: { kindred_spirit: { extra_slots: 1 } } },
   }),
   def({
     id: "primal_bond",

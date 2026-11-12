@@ -33,6 +33,7 @@ describe("pet basics", () => {
 
   it("a pet's stats are its species' numbers plus placed points, up to a cap", () => {
     const pet = newPet("green_slime", "x");
+    pet.traits = []; // its own trait off: just the numbers (traits are tested in traits.test.ts)
     expect(petStats(pet)).toEqual({ HP: 40, STR: 9, VIT: 3, AGI: 2, DEX: 5, INT: 2 });
     expect(grantPetExp(pet, 1000)).toBeGreaterThan(0);
     expect(pet.freePoints).toBe((pet.level - 1) * 5);

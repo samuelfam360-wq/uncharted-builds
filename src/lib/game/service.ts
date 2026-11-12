@@ -21,7 +21,7 @@ import { findUnlocks, type BattleSummary } from "./rules";
 import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport, type ReportHit } from "./live";
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
 import { describeCondition, revealHints } from "./reveal";
-import { BOND_GAIN, addBond, addOutTime, fullBondPets, heartsOf, BREED_LEVEL, BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, isBreed, speciesParts, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, activePets, summonLimit, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
+import { learnTrait, setTraits, BOND_GAIN, addBond, addOutTime, fullBondPets, heartsOf, BREED_LEVEL, BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, isBreed, speciesParts, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, activePets, summonLimit, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
 import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type Counters, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
@@ -173,7 +173,7 @@ export async function getState(store: GameStore, playerId: string) {
       }),
     inventory: inventory.map((i) => ({ ...i, name: ITEMS[i.itemId]?.name ?? i.itemId, description: ITEMS[i.itemId]?.description ?? "", edible: ITEMS[i.itemId]?.edible ?? false })),
     uniqueItem: unique,
-    pets: player.pets.map((p) => publicPet(p, gloryOf(d))),
+    pets: player.pets.map((p) => publicPet(p, gloryOf(d), slotsOf(d))),
     summonLimit: summonLimit(d.passive),
     breeding: { level: BREED_LEVEL, tamingLevel: BREED_TAMING_LEVEL, tamingOk: masteryLevel(counters[masteryKey("taming")] ?? 0) >= BREED_TAMING_LEVEL },
     firstPetChoices: canChooseFirstPet(player) ? FIRST_PET_CHOICES.map((id) => ({ species: id, name: speciesName(id) })) : [],
@@ -614,7 +614,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   const outPets = activePets(player, limit);
   const pet = outPets[0] ?? null;
   // the strongest bite among your pets out
-  const petCap = Math.max(0, ...outPets.map((x) => petAttacker(x, gloryOf(d))).map((a) => maxHit(attackSpec("unarmed", a), a) + 1));
+  const petCap = Math.max(0, ...outPets.map((x) => petAttacker(x, gloryOf(d), slotsOf(d))).map((a) => maxHit(attackSpec("unarmed", a), a) + 1));
   let petSwings = 0;
   let petLanded = 0;
   let petLandedCount = 0;
@@ -1363,6 +1363,22 @@ function growMastery(
 function gloryOf(d: ReturnType<typeof derive>): Glory | null {
   const g = d.passive.shared_glory;
   return g ? { stats: d.stats, share: g.stat_share } : null;
+}
+
+/** Kindred Spirit: extra trait slots for every pet. */
+const slotsOf = (d: ReturnType<typeof derive>) => d.passive.kindred_spirit?.extra_slots ?? 0;
+
+/** Learn a trait with pet points, or choose which traits are on. */
+export async function petTraits(store: GameStore, playerId: string, petId: string, op: { learn?: string; set?: string[] }) {
+  const player = await petPlayer(store, playerId);
+  const pet = player.pets.find((p) => p.id === petId);
+  if (!pet) throw new GameError("That pet isn't yours");
+  const { skills, defs, unique } = await load(store, playerId);
+  const extra = slotsOf(derive(player, skills, defs, unique));
+  if (op.learn) learnTrait(pet, op.learn);
+  if (op.set) setTraits(pet, op.set, extra);
+  await store.savePlayer(player);
+  return { pet: publicPet(pet, null, extra) };
 }
 
 async function petPlayer(store: GameStore, playerId: string) {

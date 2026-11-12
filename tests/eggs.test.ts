@@ -38,6 +38,7 @@ const swamp = (store: MemoryStore, id: string, ms: number, at: number) => game.l
 describe("Mirefang's Egg", () => {
   it("a baby boss pet starts at 10% of the boss and grows to 50%", () => {
     const pet = newPet("mirefang", "x");
+    pet.traits = []; // its own trait off: just the numbers
     expect(petStats(pet)).toEqual({ HP: 42, STR: 3, VIT: 2, AGI: 1, DEX: 2, INT: 1 });
     expect(petCap("mirefang", "HP")).toBe(210);
     expect(petCap("mirefang", "STR")).toBe(14);

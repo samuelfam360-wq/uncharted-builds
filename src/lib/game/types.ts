@@ -102,6 +102,8 @@ export interface Pet {
   parents?: [string, string]; // the parents' species
   bond?: number; // how close it is to you (hearts come from this)
   outMs?: number; // time out with you not yet turned into bond
+  learned?: string[]; // traits learned with pet points (or inherited when bred)
+  traits?: string[]; // traits switched on, in order (only as many as it has slots count)
 }
 
 export type Counters = Record<string, number>;
@@ -256,6 +258,8 @@ export interface PassiveEffect {
   scar_aura?: { radius: number; slow: number };
   /** Pack Leader: this many more pets can be out at once. */
   pack_leader?: { extra: number };
+  /** Kindred Spirit: every pet gets this many more trait slots. */
+  kindred_spirit?: { extra_slots: number };
 }
 
 export interface SkillEffect {

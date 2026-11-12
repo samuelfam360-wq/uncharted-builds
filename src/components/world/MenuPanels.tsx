@@ -278,6 +278,36 @@ export default function MenuPanels({
               </div>
               {pet.freePoints > 0 && <div className="mt-1 text-[10px] text-gold">{pet.freePoints} points to place</div>}
               {pet.parents && <div className="mt-1 text-[10px] text-muted">Bred from a {pet.parents[0]} and a {pet.parents[1]}</div>}
+              <div className="mt-1 text-[10px]">
+                <span className="text-muted">
+                  Traits ({pet.traits.filter((t) => t.on).length}/{pet.slots} on):
+                </span>{" "}
+                {pet.traits.map((t) => {
+                  const onList = pet.traits.filter((x) => x.on).map((x) => x.id);
+                  const next = t.on ? onList.filter((x) => x !== t.id) : [...onList, t.id];
+                  return (
+                    <button
+                      key={t.id}
+                      className={`btn mr-1 px-1.5 py-0 text-[10px] ${t.on ? "border-moss text-moss" : "opacity-70"}`}
+                      title={`${t.description} ${t.on ? "Click to switch off." : "Click to switch on."}`}
+                      disabled={busy || !!battle || (!t.on && onList.length >= pet.slots)}
+                      onClick={() => pets({ action: "set_traits", petId: pet.id, traits: next })}
+                    >
+                      {t.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {pet.learnable.length > 0 && pet.petPoints >= pet.learnable[0].cost && (
+                <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px]">
+                  <span className="text-muted">Learn ({pet.learnable[0].cost} pet points):</span>
+                  {pet.learnable.map((t) => (
+                    <button key={t.id} className="btn px-1.5 py-0 text-[10px]" disabled={busy || !!battle} onClick={() => pets({ action: "learn_trait", petId: pet.id, traitId: t.id })}>
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               {food.length > 0 && (
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px]">
                   <span className="text-muted">Feed:</span>

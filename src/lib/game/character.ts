@@ -233,6 +233,7 @@ export function derive(
         "foe_bane",
         "scar_aura",
         "pack_leader",
+        "kindred_spirit",
       ] as const) {
         if (ps[key] !== undefined) (passive as Record<string, unknown>)[key] = ps[key];
       }

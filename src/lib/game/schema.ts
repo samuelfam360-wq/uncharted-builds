@@ -111,6 +111,7 @@ export const effectSchema = z
         foe_bane: z.object({ monsters: z.array(z.string()).max(50), mult: z.number().min(1).max(10) }).strict().optional(),
         scar_aura: z.object({ radius: z.number().min(0).max(2000), slow: z.number().min(0).max(1) }).strict().optional(),
         pack_leader: z.object({ extra: z.number().int().min(0).max(5) }).strict().optional(),
+        kindred_spirit: z.object({ extra_slots: z.number().int().min(0).max(5) }).strict().optional(),
       })
       .strict()
       .optional(),
