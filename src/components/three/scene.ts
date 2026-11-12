@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { MONSTERS } from "@/lib/game/data/world";
 import { TILE3, type Map3D } from "@/lib/game/data/maps3d";
 import type { Look } from "../side/hero";
+import { makeSlimeCoat } from "./effects";
 import { loadPack, makeRiggedHero, onPackReady, packReady } from "./rigged";
 import { MONSTER_LOOKS } from "../side/sprites";
 import { WEAPON_FEEL, type Engine3D, type Monster, type PetUnit } from "./engine3d";
@@ -123,6 +124,9 @@ export class World3D {
   private tmp = new THREE.Vector3();
   private npcsStale = false;
   private heroBody: string | undefined;
+  private slimeCoat: THREE.Mesh[] | null = null;
+  private scarRing: THREE.Group | null = null;
+  private counterGlow: THREE.Mesh | null = null;
   private offPack: () => void;
 
   constructor(
@@ -637,7 +641,12 @@ export class World3D {
       this.heroMats = ownMaterials(this.hero.root);
       this.heroLook = key;
       this.dyn.add(this.hero.root);
+      this.slimeCoat = null;
     }
+    // Green Slime's Mercy: a see-through slime coat over the whole body
+    const slimed = !!e.combat.passive.slime_mercy && !e.player.dead;
+    if (slimed && !this.slimeCoat) this.slimeCoat = makeSlimeCoat(this.hero.root, packReady() ? 0.07 : 0.035, this.grassTime);
+    if (this.slimeCoat) for (const c of this.slimeCoat) c.visible = slimed;
     const h = this.hero;
     this.heroBody = info.look.body;
     const p = e.player;
@@ -667,6 +676,42 @@ export class World3D {
     }
     setOutlines(h.root, op === 1);
     this.heroShadow.position.set(p.x * U, 0.02, p.z * U);
+    // Wolf's Scars: a dashed red ring on the ground shows how far the slowing aura reaches
+    const scars = e.combat.passive.scar_aura;
+    if (scars && !p.dead) {
+      if (!this.scarRing) {
+        this.scarRing = new THREE.Group();
+        const mat = new THREE.MeshBasicMaterial({ color: "#ff3b3b", transparent: true, opacity: 0.65, depthWrite: false, side: THREE.DoubleSide });
+        const n = 28;
+        for (let i = 0; i < n; i++) {
+          const dash = new THREE.Mesh(new THREE.RingGeometry(0.94, 1, 6, 1, (i / n) * Math.PI * 2, (Math.PI * 2) / n / 1.8), mat);
+          dash.rotation.x = -Math.PI / 2;
+          this.scarRing.add(dash);
+        }
+        this.scarRing.renderOrder = 1;
+        this.scene.add(this.scarRing);
+      }
+      this.scarRing.visible = true;
+      this.scarRing.position.set(p.x * U, 0.03, p.z * U);
+      this.scarRing.scale.setScalar(scars.radius * U);
+      this.scarRing.rotation.y = -now / 4000;
+    } else if (this.scarRing) this.scarRing.visible = false;
+    // a parry counter is ready: a pulsing golden glow around you
+    if (now < p.counterUntil && !p.dead) {
+      if (!this.counterGlow) {
+        this.counterGlow = new THREE.Mesh(
+          new THREE.SphereGeometry(1, 20, 14),
+          new THREE.MeshBasicMaterial({ color: "#ffe066", transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending }),
+        );
+        this.scene.add(this.counterGlow);
+      }
+      this.counterGlow.visible = true;
+      toScene(p.x, p.y, p.z, this.counterGlow.position);
+      this.counterGlow.position.y += 0.7;
+      const pulse = 1 + Math.sin(now / 80) * 0.05;
+      this.counterGlow.scale.set(0.6 * pulse, 0.85 * pulse, 0.6 * pulse);
+      (this.counterGlow.material as THREE.MeshBasicMaterial).opacity = 0.28 + Math.sin(now / 80) * 0.1;
+    } else if (this.counterGlow) this.counterGlow.visible = false;
     const air = Math.min(1, -p.y / 200);
     this.heroShadow.scale.setScalar(1 - air * 0.4);
   }

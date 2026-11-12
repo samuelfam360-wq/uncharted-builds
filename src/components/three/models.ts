@@ -229,6 +229,7 @@ export function makeHero(L: Look): HeroModel {
   armR.add(handR);
   const handL = new THREE.Group();
   handL.position.set(0, -0.25, 0.02);
+  handR.userData.weapon = handL.userData.weapon = true;
   armL.add(handL);
 
   const model: HeroModel = {

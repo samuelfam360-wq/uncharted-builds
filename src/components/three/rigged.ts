@@ -259,6 +259,7 @@ export function makeRiggedHero(look: Look): HeroModel | null {
   holdL.rotation.set(Math.PI, 0, 0);
   holdR.scale.setScalar(1.25 / pack.scale);
   holdL.scale.setScalar(1.25 / pack.scale);
+  holdR.userData.weapon = holdL.userData.weapon = true;
   slotR?.add(holdR);
   slotL?.add(holdL);
 
