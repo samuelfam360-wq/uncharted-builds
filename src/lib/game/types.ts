@@ -100,6 +100,8 @@ export interface Pet {
   base?: { HP: number; STR: number; VIT: number; AGI: number; DEX: number; INT: number };
   caps?: { HP: number; STR: number; VIT: number; AGI: number; DEX: number; INT: number };
   parents?: [string, string]; // the parents' species
+  bond?: number; // how close it is to you (hearts come from this)
+  outMs?: number; // time out with you not yet turned into bond
 }
 
 export type Counters = Record<string, number>;

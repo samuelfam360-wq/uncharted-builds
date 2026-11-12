@@ -35,6 +35,12 @@ export default function MenuPanels({
   const [breedMsg, setBreedMsg] = useState<string[]>([]);
   const [breeds, setBreeds] = useState<{ id: string; name: string; firstBredBy: string | null; timesBred: number }[] | null>(null);
   const grown = state.pets.filter((p) => p.level >= state.breeding.level);
+  const food = state.inventory.filter((i) => i.edible && i.qty > 0);
+  const [petMsg, setPetMsg] = useState<{ id: string; text: string } | null>(null);
+  const feed = async (petId: string, itemId: string) => {
+    const r = await run(() => api<{ log: string[] }>("/api/pets", { action: "feed", petId, itemId, withState: true }));
+    if (r) setPetMsg({ id: petId, text: r.log.join(" ") });
+  };
   const breedNow = async () => {
     const r = await run(() => api<{ log: string[] }>("/api/pets", { action: "breed", a: mate.a, b: mate.b, withState: true }));
     if (r) {
@@ -244,6 +250,13 @@ export default function MenuPanels({
               <div className="mt-1 h-1.5 overflow-hidden rounded bg-black/40">
                 <div className="h-full bg-gold" style={{ width: `${pet.expToNext ? Math.min(100, (pet.exp / pet.expToNext) * 100) : 100}%` }} />
               </div>
+              <div className="mt-1 flex items-center gap-1 text-xs" title={`Bond grows from wins while it's out, meals, and time out with you. Each heart: +2% to all its stats.`}>
+                <span className="tracking-tight text-[#ff7aa8]" aria-label={`${pet.hearts} of 5 hearts`}>
+                  {"♥".repeat(pet.hearts)}
+                  <span className="text-white/20">{"♥".repeat(5 - pet.hearts)}</span>
+                </span>
+                <span className="text-[10px] text-muted">Bond {pet.nextHeart ? `${pet.bond}/${pet.nextHeart}` : `${pet.bond} (full)`}</span>
+              </div>
               <div className="mt-0.5 text-[10px] text-muted">
                 EXP {pet.expToNext ? `${pet.exp}/${pet.expToNext}` : "max level"} · Pet points {pet.petPoints} · Kills {pet.kills}
               </div>
@@ -265,6 +278,17 @@ export default function MenuPanels({
               </div>
               {pet.freePoints > 0 && <div className="mt-1 text-[10px] text-gold">{pet.freePoints} points to place</div>}
               {pet.parents && <div className="mt-1 text-[10px] text-muted">Bred from a {pet.parents[0]} and a {pet.parents[1]}</div>}
+              {food.length > 0 && (
+                <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px]">
+                  <span className="text-muted">Feed:</span>
+                  {food.map((f) => (
+                    <button key={f.itemId} className="btn px-1.5 py-0 text-[10px]" disabled={busy || !!battle} onClick={() => void feed(pet.id, f.itemId)}>
+                      {f.name} ×{f.qty}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {petMsg?.id === pet.id && <div className="mt-1 text-[10px] text-moss">{petMsg.text}</div>}
             </li>
           ))}
         </ul>

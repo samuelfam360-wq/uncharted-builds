@@ -115,6 +115,36 @@ export const baseOf = (p: Pet): Record<PetStat, number> => p.base ?? petBase(p.s
 /** The most this pet's stat can reach: its own cap if it was bred, else its species'. */
 export const capOf = (p: Pet, k: PetStat) => p.caps?.[k] ?? petCap(p.species, k);
 
+// ---------- bond ----------
+
+/** Bond needed for each heart (1 to 5). */
+export const BOND_HEARTS = [30, 100, 250, 500, 1000] as const;
+export const MAX_HEARTS = BOND_HEARTS.length;
+/** Each heart adds this share to all the pet's stats. */
+export const BOND_STAT_PER_HEART = 0.02;
+/** Bond a pet gains: per win while it's out, per boss win, per meal, and per this many minutes out with you. */
+export const BOND_GAIN = { kill: 1, boss: 10, feed: 5, outMinutes: 5 } as const;
+
+export const heartsOf = (p: Pet) => BOND_HEARTS.filter((n) => (p.bond ?? 0) >= n).length;
+
+/** Add bond. Returns the hearts gained. */
+export function addBond(p: Pet, n: number): number {
+  const before = heartsOf(p);
+  p.bond = (p.bond ?? 0) + Math.max(0, Math.floor(n));
+  return heartsOf(p) - before;
+}
+
+/** Time out with you turns into bond: one point per few minutes. Returns the hearts gained. */
+export function addOutTime(p: Pet, ms: number): number {
+  const step = BOND_GAIN.outMinutes * 60_000;
+  const total = (p.outMs ?? 0) + Math.max(0, ms);
+  p.outMs = total % step;
+  return addBond(p, Math.floor(total / step));
+}
+
+/** How many of your pets have every heart (Kindred Spirit's unlock). */
+export const fullBondPets = (player: Player) => player.pets.filter((p) => heartsOf(p) >= MAX_HEARTS).length;
+
 /** Your stats that Shared Glory lends to the pet that's out. */
 export interface Glory {
   stats: Record<string, number>;
@@ -125,8 +155,10 @@ export interface Glory {
 export function petStats(p: Pet, glory?: Glory | null): Record<PetStat, number> {
   const base = baseOf(p);
   const out = {} as Record<PetStat, number>;
+  const bond = 1 + BOND_STAT_PER_HEART * heartsOf(p);
   for (const k of PET_STATS) {
-    out[k] = Math.min(capOf(p, k), (base[k] ?? 0) + (p.stats[k] ?? 0));
+    // bond hearts lift every stat a little (past the cap: the cap is for placed points)
+    out[k] = Math.floor(Math.min(capOf(p, k), (base[k] ?? 0) + (p.stats[k] ?? 0)) * bond);
     if (glory && p.active) out[k] += Math.floor((glory.stats[k] ?? 0) * glory.share);
   }
   return out;
@@ -205,6 +237,9 @@ export function publicPet(p: Pet, glory?: Glory | null) {
     petPoints: p.petPoints,
     kills: p.kills,
     active: p.active,
+    bond: p.bond ?? 0,
+    hearts: heartsOf(p),
+    nextHeart: BOND_HEARTS[heartsOf(p)] ?? null,
   };
 }
 
