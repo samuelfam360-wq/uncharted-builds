@@ -547,6 +547,51 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     effect: { stat_multiplier: { HP: 1.1, MP: 1.1, STR: 1.1, VIT: 1.1, AGI: 1.1, DEX: 1.1, INT: 1.1 } },
   }),
 
+  // ---------- Taming mastery ----------
+  def({
+    id: "shared_glory",
+    name: "Shared Glory",
+    description: "Your pet gains a share of your EXP and stats: the pet that's out adds 20% of your stats to its own and earns 50% more EXP. Needs a tamer wand in hand.",
+    kind: "passive",
+    conditions: { counter: "pet_kills", op: ">=", value: 5000 },
+    effect: { weapons: ["tamer_wand"], passive: { shared_glory: { stat_share: 0.2, exp_mult: 1.5 } } },
+  }),
+  def({
+    id: "beast_tongue",
+    name: "Beast Tongue",
+    description: "You understand monsters: every enemy's next attack is shown 1 second early. Needs a tamer wand in hand.",
+    kind: "passive",
+    conditions: { counter: "species_tamed", op: ">=", value: 50 },
+    effect: { weapons: ["tamer_wand"], passive: { beast_tongue: { early_ms: 1000 } } },
+  }),
+  def({
+    id: "pack_leader",
+    name: "Pack Leader",
+    description: "Summon limit +1: one more pet can be out at a time. Needs a tamer wand in hand.",
+    kind: "passive",
+    conditions: { counter: "max_pack_fights", op: ">=", value: 100 },
+    effect: {},
+    enabled: false, // waits for more than one pet out at a time
+  }),
+  def({
+    id: "kindred_spirit",
+    name: "Kindred Spirit",
+    description: "Every pet gets +1 trait slot.",
+    kind: "passive",
+    conditions: { counter: "max_bond_pets", op: ">=", value: 5 },
+    effect: {},
+    enabled: false, // waits for pet bond and traits (not designed yet)
+  }),
+  def({
+    id: "primal_bond",
+    name: "Primal Bond",
+    description: "Ultimate. Your pet's hits on a boss charge the gauge (50 / 100 / 200), and your pet turns giant to strike.",
+    kind: "active",
+    conditions: { counter: "pet_solo_boss_wins", op: ">=", value: 1 },
+    effect: {},
+    enabled: false, // waits for the pet ultimate
+  }),
+
   // ---------- For those who keep falling (Samuel's newbie skills) ----------
   def({
     id: "green_slimes_mercy",
