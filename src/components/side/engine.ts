@@ -219,6 +219,7 @@ export interface Monster {
   lastAir?: boolean; // the last hit was a lance attack made in the air
   lastPet?: boolean; // the last hit was your pet's
   tame?: TameState; // progress toward its species' hidden taming condition, this fight
+  foreseen?: EnemyAttack; // Beast Tongue: the attack it will use next, shown early
 }
 
 /** What happened in one monster's fight that its taming condition cares about. */
@@ -1940,8 +1941,20 @@ export class Engine {
         }
         const vertOk = flying ? Math.abs(p.y - 30 - m.y) < 70 : Math.abs(dy) < 70;
         const inMelee = Math.abs(dx) <= reach && vertOk;
+        // Beast Tongue: you know its next attack a moment before it starts
+        const tongue = this.combat.passive.beast_tongue;
+        if (tongue && !m.foreseen && !p.dead && now >= m.nextAttackAt - tongue.early_ms) {
+          m.foreseen = this.foresee(m);
+          if (m.foreseen) this.text(m.x, m.y - look.body.h - 30, `${m.foreseen.name} next!`, "#9fe8c0", 16);
+        }
         if (now >= m.nextAttackAt && !p.dead) {
-          const choice = this.pickAttack(m, Math.abs(dx), vertOk, inMelee);
+          let choice: EnemyAttack | null;
+          if (m.foreseen) {
+            // it does what you were told, once it can reach you (or gives up after a while)
+            const ok = this.canUse(m, m.foreseen, Math.abs(dx), vertOk, inMelee);
+            choice = ok ? m.foreseen : now - m.nextAttackAt > 2000 ? this.pickAttack(m, Math.abs(dx), vertOk, inMelee) : null;
+            if (choice) m.foreseen = undefined;
+          } else choice = this.pickAttack(m, Math.abs(dx), vertOk, inMelee);
           if (choice) {
             const sp = ai.special?.[choice.name];
             m.attack = choice;
@@ -1970,21 +1983,33 @@ export class Engine {
     }
   }
 
+  /** Whether the monster can use this attack from where it is. */
+  private canUse(m: Monster, a: EnemyAttack, dist: number, vertOk: boolean, inMelee: boolean): boolean {
+    // silenced monsters can't use magic or status attacks
+    if (m.statuses.silence && (a.element === "magic" || a.status)) return false;
+    const sp = this.aiOf(m).special?.[a.name];
+    const look = MONSTER_LOOKS[m.id];
+    if (!sp) return inMelee;
+    if (sp.kind === "area") return dist <= sp.range && Math.abs(this.player.y - m.y) < sp.range;
+    if (sp.kind === "spit") return dist <= sp.range && vertOk;
+    if (sp.kind === "dash") return dist <= sp.range + look.body.w / 2 && vertOk;
+    return dist <= look.body.w / 2 + PLAYER_W / 2 + sp.range && vertOk;
+  }
+
+  /** Beast Tongue: decide the monster's next attack ahead of time (any it may use). */
+  private foresee(m: Monster): EnemyAttack | undefined {
+    let pool = MONSTERS[m.id].attacks;
+    if (m.statuses.silence) pool = pool.filter((a) => a.element !== "magic" && !a.status);
+    if (!pool.length) return undefined;
+    const total = pool.reduce((n, a) => n + a.weight, 0);
+    let roll = this.rng() * total;
+    return pool.find((a) => (roll -= a.weight) < 0) ?? pool[0];
+  }
+
   /** Choose an attack the monster can reach from where it is. */
   private pickAttack(m: Monster, dist: number, vertOk: boolean, inMelee: boolean): EnemyAttack | null {
     const def = MONSTERS[m.id];
-    const ai = this.aiOf(m);
-    const look = MONSTER_LOOKS[m.id];
-    let pool = def.attacks.filter((a) => {
-      const sp = ai.special?.[a.name];
-      if (!sp) return inMelee;
-      if (sp.kind === "area") return dist <= sp.range && Math.abs(this.player.y - m.y) < sp.range;
-      if (sp.kind === "spit") return dist <= sp.range && vertOk;
-      if (sp.kind === "dash") return dist <= sp.range + look.body.w / 2 && vertOk;
-      return dist <= look.body.w / 2 + PLAYER_W / 2 + sp.range && vertOk;
-    });
-    // silenced monsters can't use magic or status attacks
-    if (m.statuses.silence) pool = pool.filter((a) => a.element !== "magic" && !a.status);
+    const pool = def.attacks.filter((a) => this.canUse(m, a, dist, vertOk, inMelee));
     if (!pool.length) return null;
     const total = pool.reduce((n, a) => n + a.weight, 0);
     let roll = this.rng() * total;
