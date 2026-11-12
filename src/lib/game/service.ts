@@ -22,7 +22,7 @@ import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EX
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
 import { describeCondition, revealHints } from "./reveal";
 import { BREED_LEVEL, BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, isBreed, speciesParts, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
-import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
+import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type Counters, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
 export interface UnlockNotice {
@@ -45,13 +45,14 @@ interface Loaded {
 }
 
 async function load(store: GameStore, playerId: string): Promise<Loaded> {
-  const player = await store.getPlayer(playerId);
-  if (!player) throw new GameError("Character not found", 404);
-  const [defList, skills, uniques] = await Promise.all([
+  // all at once: one trip to the database instead of two
+  const [player, defList, skills, uniques] = await Promise.all([
+    store.getPlayer(playerId),
     store.listSkillDefs(),
     store.getPlayerSkills(playerId),
     store.getUniqueItems(),
   ]);
+  if (!player) throw new GameError("Character not found", 404);
   return {
     player,
     defs: new Map(defList.map((d) => [d.id, d])),
@@ -77,13 +78,14 @@ export async function createCharacter(store: GameStore, input: CreateCharacterIn
 export async function checkUnlocks(
   store: GameStore,
   playerId: string,
-  opts: { battle?: BattleSummary | null; zone?: string | null } = {},
+  opts: { battle?: BattleSummary | null; zone?: string | null; pre?: { player: Player; defs: Map<string, SkillDefinition>; skills: PlayerSkill[]; counters: Counters } } = {},
 ): Promise<UnlockNotice[]> {
   const notices: UnlockNotice[] = [];
   // Loop so a chain (prerequisite unlocked this batch) can resolve in one go.
   for (let pass = 0; pass < 3; pass++) {
-    const { player, defs, skills } = await load(store, playerId);
-    const counters = await store.getCounters(playerId);
+    // the first pass can use what the caller already has in hand
+    const { player, defs, skills, counters } =
+      pass === 0 && opts.pre ? opts.pre : await Promise.all([load(store, playerId), store.getCounters(playerId)]).then(([l, c]) => ({ ...l, counters: c }));
     const candidates = findUnlocks([...defs.values()], skills, {
       counters,
       stats: player.stats,
@@ -124,9 +126,13 @@ export async function checkUnlocks(
 // ---------- Player-facing state ----------
 
 export async function getState(store: GameStore, playerId: string) {
-  const { player, defs, skills, unique } = await load(store, playerId);
+  const [{ player, defs, skills, unique }, inventory, battle, counters] = await Promise.all([
+    load(store, playerId),
+    store.getInventory(playerId),
+    store.getActiveBattle(playerId),
+    store.getCounters(playerId),
+  ]);
   const d = derive(player, skills, defs, unique);
-  const [inventory, battle, counters] = await Promise.all([store.getInventory(playerId), store.getActiveBattle(playerId), store.getCounters(playerId)]);
   return {
     player,
     className: CLASSES[player.classId]?.name ?? "Free Class",
@@ -273,8 +279,8 @@ export async function setEquipped(store: GameStore, playerId: string, skillId: s
 // ---------- Town ----------
 
 export async function rest(store: GameStore, playerId: string) {
-  if (await store.getActiveBattle(playerId)) throw new GameError("You're in a battle");
-  const { player, skills, defs, unique } = await load(store, playerId);
+  const [battle, { player, skills, defs, unique }] = await Promise.all([store.getActiveBattle(playerId), load(store, playerId)]);
+  if (battle) throw new GameError("You're in a battle");
   const d = derive(player, skills, defs, unique);
   player.currentHp = d.maxHp;
   player.currentMp = d.maxMp;
@@ -541,9 +547,8 @@ export async function liveEnter(store: GameStore, playerId: string, zoneId: stri
 export async function liveReport(store: GameStore, playerId: string, report: LiveReport, rng: Rng = Math.random, now = Date.now()) {
   const zone = ZONES[report.zoneId];
   if (!zone) throw new GameError("Unknown place");
-  const { player, skills, defs, unique } = await load(store, playerId);
+  const [{ player, skills, defs, unique }, counters, invNow] = await Promise.all([load(store, playerId), store.getCounters(playerId), store.getInventory(playerId)]);
   const d = derive(player, skills, defs, unique);
-  const counters = await store.getCounters(playerId);
   const elapsedSec = Math.max(0, Math.min(900, (now - (counters.live_t ?? now - 60_000)) / 1000));
   const deltas: CounterDeltas = { live_t: { op: "set", value: now } };
 
@@ -839,7 +844,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   if (bt.mp > mpSpent) throw new GameError("Boss fight counts don't add up");
 
   // ----- items eaten -----
-  const inv = new Map((await store.getInventory(playerId)).map((i) => [i.itemId, i.qty]));
+  const inv = new Map(invNow.map((i) => [i.itemId, i.qty]));
   let itemHeal = 0;
   for (const id of report.itemsUsed) {
     const item = ITEMS[id];
@@ -1201,14 +1206,15 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   }
 
   // Save: items, counters, player. Items go one by one so the store keeps its own rules.
-  const before = new Map((await store.getInventory(playerId)).map((i) => [i.itemId, i.qty]));
+  const before = new Map(invNow.map((i) => [i.itemId, i.qty]));
+  const itemWrites: Promise<void>[] = [];
   for (const [id, qty] of inv) {
     const diff = qty - (before.get(id) ?? 0);
-    if (diff !== 0) await store.changeItem(playerId, id, diff);
+    if (diff !== 0) itemWrites.push(store.changeItem(playerId, id, diff));
   }
-  await store.applyCounters(playerId, deltas);
-  await store.savePlayer(player);
-  const unlocks = await checkUnlocks(store, playerId, { battle: summary, zone: zone.id });
+  // the writes don't depend on each other: send them together
+  const [after] = await Promise.all([store.applyCounters(playerId, deltas), store.savePlayer(player), ...itemWrites]);
+  const unlocks = await checkUnlocks(store, playerId, { battle: summary, zone: zone.id, pre: { player, defs, skills, counters: after } });
 
   return {
     hp: player.currentHp,
@@ -1341,8 +1347,8 @@ function gloryOf(d: ReturnType<typeof derive>): Glory | null {
 }
 
 async function petPlayer(store: GameStore, playerId: string) {
-  if (await store.getActiveBattle(playerId)) throw new GameError("You're in a battle");
-  const player = await store.getPlayer(playerId);
+  const [battle, player] = await Promise.all([store.getActiveBattle(playerId), store.getPlayer(playerId)]);
+  if (battle) throw new GameError("You're in a battle");
   if (!player) throw new GameError("Character not found", 404);
   return player;
 }
