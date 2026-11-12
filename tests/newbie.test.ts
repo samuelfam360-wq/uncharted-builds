@@ -65,36 +65,21 @@ describe("skills for those who keep falling", () => {
     expect(e.player.hp).toBeLessThan(hp);
   });
 
-  it("Horn Rabbit Weapons: 50% more on Horned Rabbits, and the server accepts it", async () => {
-    const plain = await engineSetup("mirewood_fields", []);
-    const bane = await engineSetup("mirewood_fields", ["horn_rabbit_weapons"]);
-    const avg = (s: typeof plain) => {
-      const m = faceOff(s.e, "horned_rabbit");
-      m.hp = m.maxHp = 1e6;
-      m.nextAttackAt = 1e12;
-      s.e.held.attack = true;
-      s.run(4000);
-      s.e.held.attack = false;
-      s.e.flush();
-      const hs = s.reports.flatMap((r) => r.hits).filter((h) => !h.miss && !h.crit && !h.pet);
-      return { avg: hs.reduce((n, h) => n + h.dmg, 0) / hs.length, hs };
-    };
-    const a = avg(plain);
-    const b = avg(bane);
-    expect(b.hs.every((h) => h.foe === "horned_rabbit")).toBe(true);
-    expect(b.avg / a.avg).toBeGreaterThan(1.3);
-    for (const r of bane.reports) await game.liveReport(bane.store, bane.p.id, r, seeded(), bane.clock() + 60_000);
-    // without the skill, a hit that big (or a claim of it) is refused
+  it("Horn Rabbit Weapons: Special grade, +20 STR, and no extra damage only for rabbits", async () => {
     const { store, p } = await newPlayer();
-    const st = await game.getState(store, p.id);
-    const cap = maxHit(attackSpec("sword", st.combat), st.combat);
+    const before = (await game.getState(store, p.id)).combat;
+    await give(store, p.id, "horn_rabbit_weapons");
+    const after = (await game.getState(store, p.id)).combat;
+    expect(after.stats.STR - before.stats.STR).toBe(20);
+    expect(after.passive.foe_bane).toBeUndefined();
+    const def = MASTERY_SKILLS.find((s) => s.id === "horn_rabbit_weapons")!;
+    expect(def.description).toContain("Special grade");
+    // the stronger hits are accepted by the server on any monster
+    const cap = maxHit(attackSpec("sword", after), after);
+    expect(cap).toBeGreaterThan(maxHit(attackSpec("sword", before), before));
     const t = Date.now();
     await game.liveEnter(store, p.id, "mirewood_fields", t - 10_000);
-    await expect(game.liveReport(store, p.id, blank("mirewood_fields", { hits: [hit(Math.floor(cap * 1.5), { foe: "horned_rabbit" })] }), seeded(), t)).rejects.toThrow();
-    await give(store, p.id, "horn_rabbit_weapons");
-    await game.liveReport(store, p.id, blank("mirewood_fields", { hits: [hit(Math.floor(cap * 1.5), { foe: "horned_rabbit" })] }), seeded(), t);
-    // the bonus is only for the monsters it names
-    await expect(game.liveReport(store, p.id, blank("mirewood_fields", { hits: [hit(Math.floor(cap * 1.5), { foe: "thorn_wolf" })] }), seeded(), t + 1000)).rejects.toThrow();
+    await game.liveReport(store, p.id, blank("mirewood_fields", { hits: [hit(cap)] }), seeded(), t);
   });
 
   it("Poison Toad Armour: +10% poison resistance", async () => {
@@ -121,6 +106,30 @@ describe("skills for those who keep falling", () => {
     const scarred = await dist(["wolfs_scars"]);
     expect(plain).toBeGreaterThan(0);
     expect(scarred / plain).toBeCloseTo(0.7, 1);
+  });
+
+  it("Wolf's Scars: monsters inside the aura also wind up and recover slower", async () => {
+    const windup = async (skills: string[]) => {
+      const { e, run } = await engineSetup("mirewood_fields", skills);
+      const m = faceOff(e, "thorn_wolf");
+      e.monsters = [m];
+      m.aggro = true;
+      m.nextAttackAt = 0;
+      e.player.invulnUntil = 1e12;
+      let start = -1;
+      let end = -1;
+      for (let t = 0; t < 4000 && end < 0; t += 16) {
+        run(16);
+        if (start < 0 && m.state === "windup") start = t;
+        if (start >= 0 && m.state === "recover") end = t;
+      }
+      return { len: end - start, gap: m.nextAttackAt - e.now };
+    };
+    const plain = await windup([]);
+    const scarred = await windup(["wolfs_scars"]);
+    expect(plain.len).toBeGreaterThan(0);
+    expect(scarred.len / plain.len).toBeGreaterThan(1.3);
+    expect(scarred.len / plain.len).toBeLessThan(1.55);
   });
 
   it("poison that finishes you is blamed on whoever poisoned you", async () => {

@@ -601,7 +601,7 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
   def({
     id: "horn_rabbit_weapons",
     name: "Horn Rabbit Weapons",
-    description: "Your weapons deal 50% more damage to Horned Rabbits.",
+    description: "Special grade. Weapons made from the Horned Rabbit's horn: you can only get them once. +20 STR.",
     kind: "passive",
     conditions: {
       all: [
@@ -609,7 +609,7 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
         { counter: "defeated_horned_rabbit", op: ">=", value: 50 },
       ],
     },
-    effect: { passive: { foe_bane: { monsters: ["horned_rabbit"], mult: 1.5 } } },
+    effect: { stat_bonus: { STR: 20 } },
   }),
   def({
     id: "poison_toad_armour",
@@ -622,7 +622,7 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
   def({
     id: "wolfs_scars",
     name: "Wolf's Scars",
-    description: "An aura of old scars: monsters inside it move 30% slower.",
+    description: "An aura of old scars: monsters inside it move and attack 30% slower.",
     kind: "passive",
     conditions: { counter: "killed_by_thorn_wolf", op: ">=", value: 20 },
     effect: { passive: { scar_aura: { radius: 200, slow: 0.3 } } },

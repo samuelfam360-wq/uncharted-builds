@@ -1,5 +1,6 @@
 "use client";
 
+import { setMusic } from "@/lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/client";
 import { ITEMS, MONSTERS, ZONES } from "@/lib/game/data/world";
@@ -569,6 +570,9 @@ export default function SideGame({
       e.paused = pausedRef.current;
       if (e.paused) e.now = now;
       e.update(dt, now);
+      // the tune follows where you are
+      const kind = ZONES[e.map.zoneId].kind;
+      setMusic(kind === "town" ? "town" : kind === "dungeon" ? "cave" : "field");
       // size the canvas to the screen
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const cw = wrap.clientWidth;

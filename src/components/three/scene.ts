@@ -11,7 +11,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { MONSTERS } from "@/lib/game/data/world";
 import { TILE3, type Map3D } from "@/lib/game/data/maps3d";
 import type { Look } from "../side/hero";
-import { makeSlimeCoat } from "./effects";
+import { makeScarAura, makeSlimeCoat } from "./effects";
 import { glowPower, loadPack, makeRiggedHero, onPackReady, packReady } from "./rigged";
 import { MONSTER_LOOKS } from "../side/sprites";
 import { WEAPON_FEEL, type Engine3D, type Monster, type PetUnit } from "./engine3d";
@@ -132,7 +132,7 @@ export class World3D {
   private npcsStale = false;
   private heroBody: string | undefined;
   private slimeCoat: THREE.Mesh[] | null = null;
-  private scarRing: THREE.Group | null = null;
+  private scarAura: ReturnType<typeof makeScarAura> | null = null;
   private counterGlow: THREE.Mesh | null = null;
   private offPack: () => void;
   /** Draws the scene with a soft glow around anything brighter than white (neon trims, weapons). */
@@ -709,26 +709,19 @@ export class World3D {
       this.glowRing.position.set(p.x * U, 0.03, p.z * U);
       (this.glowRing.material as THREE.MeshBasicMaterial).opacity = p.dead ? 0.25 : 1;
     }
-    // Wolf's Scars: a dashed red ring on the ground shows how far the slowing aura reaches
+    // Wolf's Scars: a living red aura on the ground shows how far the slow reaches
     const scars = e.combat.passive.scar_aura;
     if (scars && !p.dead) {
-      if (!this.scarRing) {
-        this.scarRing = new THREE.Group();
-        const mat = new THREE.MeshBasicMaterial({ color: "#ff3b3b", transparent: true, opacity: 0.65, depthWrite: false, side: THREE.DoubleSide });
-        const n = 28;
-        for (let i = 0; i < n; i++) {
-          const dash = new THREE.Mesh(new THREE.RingGeometry(0.94, 1, 6, 1, (i / n) * Math.PI * 2, (Math.PI * 2) / n / 1.8), mat);
-          dash.rotation.x = -Math.PI / 2;
-          this.scarRing.add(dash);
-        }
-        this.scarRing.renderOrder = 1;
-        this.scene.add(this.scarRing);
+      if (!this.scarAura) {
+        this.scarAura = makeScarAura();
+        this.scene.add(this.scarAura.group);
       }
-      this.scarRing.visible = true;
-      this.scarRing.position.set(p.x * U, 0.03, p.z * U);
-      this.scarRing.scale.setScalar(scars.radius * U);
-      this.scarRing.rotation.y = -now / 4000;
-    } else if (this.scarRing) this.scarRing.visible = false;
+      const g = this.scarAura.group;
+      g.visible = true;
+      g.position.set(p.x * U, 0.035, p.z * U);
+      g.scale.setScalar(scars.radius * U);
+      this.scarAura.update(now);
+    } else if (this.scarAura) this.scarAura.group.visible = false;
     // a parry counter is ready: a pulsing golden glow around you
     if (now < p.counterUntil && !p.dead) {
       if (!this.counterGlow) {
@@ -789,8 +782,10 @@ export class World3D {
     const flash = now < m.flashUntil;
     const windup = m.state === "windup";
     for (const mat of v.model.mats) {
-      mat.emissive.set(flash ? "#ffffff" : windup ? "#ff3020" : "#000000");
-      mat.emissiveIntensity = flash ? 0.8 : windup ? 0.25 + 0.2 * Math.sin(now / 50) : 0;
+      // slowed by Wolf's Scars: a dull red that beats slowly
+      const scarred = !dead && (m.scarSlow ?? 1) < 1;
+      mat.emissive.set(flash ? "#ffffff" : windup ? "#ff3020" : scarred ? "#c01818" : "#000000");
+      mat.emissiveIntensity = flash ? 0.8 : windup ? 0.25 + 0.2 * Math.sin(now / 50) : scarred ? 0.3 + 0.12 * Math.sin(now / 260) : 0;
       if (dead) {
         mat.transparent = true;
         mat.opacity = fade;
