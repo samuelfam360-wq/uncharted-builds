@@ -2,6 +2,7 @@
 // tells them what's left. The skill's name stays hidden until it unlocks.
 
 import { COUNTER_KEYS } from "./counters";
+import { MONSTERS } from "./data/world";
 import { compare, statSpread, type RuleContext } from "./rules";
 import type { Condition, PlayerSkill, SkillDefinition, WeaponType } from "./types";
 
@@ -39,6 +40,11 @@ function counterText(key: string, cur: number, target: number): string {
     const w = key.slice(5) as WeaponType;
     if (WEAPON_WORDS[w]) return `Land ${n(left)} more hits with ${WEAPON_WORDS[w]}`;
   }
+  // falling to a monster (the newbie skills)
+  const monsterName = (id: string) => MONSTERS[id]?.name ?? id.replace(/_/g, " ");
+  if (key.startsWith("killed_by_")) return `Fall to a ${monsterName(key.slice(10))} ${n(left)} more times`;
+  if (key.startsWith("defeated_") && MONSTERS[key.slice(9)]) return `Defeat ${n(left)} more ${monsterName(key.slice(9))}s`;
+  if (key.startsWith("poison_deaths_")) return `Fall to a ${monsterName(key.slice(14))}'s poison ${n(left)} more times`;
   switch (key) {
     case "parries":
       return `Parry ${n(left)} more attacks`;

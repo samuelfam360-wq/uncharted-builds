@@ -229,6 +229,9 @@ export function derive(
         "life_palm",
         "shared_glory",
         "beast_tongue",
+        "slime_mercy",
+        "foe_bane",
+        "scar_aura",
       ] as const) {
         if (ps[key] !== undefined) (passive as Record<string, unknown>)[key] = ps[key];
       }

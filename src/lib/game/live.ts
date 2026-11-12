@@ -178,6 +178,7 @@ export interface ReportHit {
   blood?: boolean; // Blood Sorcery: a skill cast with HP at 0 MP
   charge?: number; // a lance charge: how far you ran, as a share of a full run (0.5 to 1)
   pet?: boolean; // your pet's bite, not your swing
+  foe?: string; // Horn Rabbit Weapons: the monster this extra-strong hit landed on
 }
 
 /** Counts for the boss fight in progress, since the last report. */
@@ -219,6 +220,7 @@ export interface LiveReport {
   swampTicks: number;
   swampMs?: number; // time spent standing in the swamp (carrying a boss egg hatches it)
   inSwamp: boolean; // kill: the fight happened in the swamp
+  deathBy?: "poison"; // death: poison finished you (monsterId is the one that poisoned you)
   minHpPct: number;
   hp: number;
   mp: number;
@@ -295,6 +297,7 @@ export function cleanReport(body: unknown): LiveReport {
         blood: o.blood === true,
         charge: typeof o.charge === "number" && Number.isFinite(o.charge) ? Math.max(0, Math.min(1, o.charge)) : undefined,
         pet: o.pet === true,
+        foe: typeof o.foe === "string" ? o.foe.slice(0, 40) : undefined,
       };
     }),
     directToTarget: num(b.directToTarget),
@@ -315,6 +318,7 @@ export function cleanReport(body: unknown): LiveReport {
     swampTicks: num(b.swampTicks, 100000),
     swampMs: num(b.swampMs, 1_000_000),
     inSwamp: b.inSwamp === true,
+    deathBy: b.deathBy === "poison" ? "poison" : undefined,
     minHpPct: typeof b.minHpPct === "number" && Number.isFinite(b.minHpPct) ? Math.max(0, Math.min(1, b.minHpPct)) : 1,
     hp: num(b.hp),
     mp: num(b.mp),

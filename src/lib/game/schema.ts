@@ -107,6 +107,9 @@ export const effectSchema = z
         life_palm: z.object({ pct: z.number().min(0).max(1) }).strict().optional(),
         shared_glory: z.object({ stat_share: z.number().min(0).max(1), exp_mult: z.number().min(0) }).strict().optional(),
         beast_tongue: z.object({ early_ms: z.number().min(0).max(5000) }).strict().optional(),
+        slime_mercy: z.object({ monsters: z.array(z.string()).max(50) }).strict().optional(),
+        foe_bane: z.object({ monsters: z.array(z.string()).max(50), mult: z.number().min(1).max(10) }).strict().optional(),
+        scar_aura: z.object({ radius: z.number().min(0).max(2000), slow: z.number().min(0).max(1) }).strict().optional(),
       })
       .strict()
       .optional(),
