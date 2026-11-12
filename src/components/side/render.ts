@@ -297,7 +297,10 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
   for (const pt of e.pets) {
     const look = petLookOf(pt.species);
     // a boss pet (or one bred from a boss) is a baby: much smaller than the real thing
-    const ps = pt.species.split("+").some((s) => MONSTERS[s]?.isBoss) ? 0.4 : 0.8;
+    // Primal Bond: it grows giant for a moment, then shrinks back
+    const gl = (pt.giantUntil ?? 0) - now;
+    const grow = gl > 0 ? Math.min(1, (1200 - gl) / 150, gl / 200) : 0;
+    const ps = (pt.species.split("+").some((s) => MONSTERS[s]?.isBoss) ? 0.4 : 0.8) * (1 + 2 * grow);
     ctx.save();
     ctx.translate(pt.x, pt.y);
     if (!look.flying) {

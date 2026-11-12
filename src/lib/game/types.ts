@@ -155,7 +155,8 @@ export type GaugeSource =
   | "boss_weapon_hits"
   | "boss_mp_spent" // MP spent in the boss fight (Star Fall)
   | "boss_healed" // HP healed or drained in the boss fight (Judgment of Mercy)
-  | "boss_charges"; // lance charges that hit the boss (Dragonpiercer)
+  | "boss_charges" // lance charges that hit the boss (Dragonpiercer)
+  | "boss_pet_hits"; // your pet's bites that landed on the boss (Primal Bond)
 
 /**
  * Tiers: [half, kill, kill + EXP]. Firing at the first tier deals 50% of the

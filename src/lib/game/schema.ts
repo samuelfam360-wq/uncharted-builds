@@ -44,7 +44,7 @@ const activeSchema: z.ZodType<ActiveEffect> = z
     shadow_walk: z.object({ invisible_s: z.number().min(0) }).strict().optional(),
     ultimate: z
       .object({
-        gauge: z.enum(["boss_hits", "boss_parries", "boss_dodges", "boss_weapon_hits", "boss_mp_spent", "boss_healed", "boss_charges"]),
+        gauge: z.enum(["boss_hits", "boss_parries", "boss_dodges", "boss_weapon_hits", "boss_mp_spent", "boss_healed", "boss_charges", "boss_pet_hits"]),
         tiers: z.tuple([z.number().int().min(1), z.number().int().min(1), z.number().int().min(1)]),
         field: z.boolean().optional(),
       })

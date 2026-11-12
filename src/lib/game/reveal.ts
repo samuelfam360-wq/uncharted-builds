@@ -120,6 +120,8 @@ function counterText(key: string, cur: number, target: number): string {
       return `Win ${n(left)} more fights with as many pets out as you can have`;
     case "pet_kills":
       return `Your pet lands ${n(left)} more killing blows`;
+    case "pet_solo_boss_wins":
+      return `Win ${n(left)} more boss fight${left === 1 ? "" : "s"} where your pet does all the damage`;
     case "species_tamed":
       return `Tame ${n(left)} more different species`;
     case "spell_kills":

@@ -23,7 +23,7 @@ describe("Dagger, Hammer, Fists, Gun and Bow skills: data", () => {
       [
         ...["bending_shot", "broken_blade", "empty_vessel", "final_round", "full_swing", "heavens_draw", "last_arrow", "pressure_point", "ricochet", "titans_defiance"],
         ...["storm_sovereign", "divine_blessing", "purify", "curse_ward", "hallowed_soul", "skewer"],
-        ...["kindred_spirit", "primal_bond"],
+        ...["kindred_spirit"],
       ].sort(),
     );
     const on = MASTERY_SKILLS.filter((s) => s.enabled).map((s) => s.name);

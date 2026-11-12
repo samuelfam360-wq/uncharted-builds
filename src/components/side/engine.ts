@@ -249,6 +249,7 @@ export interface PetUnit {
   walkT: number;
   moving: boolean;
   struckAt: number;
+  giantUntil?: number; // Primal Bond: it's giant until then
 }
 
 /** A Phantom Legion shadow clone. */
@@ -352,7 +353,7 @@ const emptyAcc = () => ({
   minHpPct: 1,
   hitsTaken: 0,
   guardStored: 0,
-  boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0 } as BossTally,
+  boss: { hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0, petHits: 0 } as BossTally,
   bossEnd: false,
   stormFights: 0,
   phantomFights: 0,
@@ -399,6 +400,7 @@ export interface BossFight {
   mp: number; // MP you spent on skills
   healed: number; // HP you healed or drained
   charges: number; // lance charges that hit it
+  petHits: number; // your pet's bites that landed on it
   others: boolean; // another monster joined in
   items: boolean; // you ate something
   gauges: Record<string, { base: number; half: boolean }>;
@@ -990,6 +992,7 @@ export class Engine {
       boss_mp_spent: bf.mp,
       boss_healed: bf.healed,
       boss_charges: bf.charges,
+      boss_pet_hits: bf.petHits,
     }[g];
   }
 
@@ -1002,6 +1005,9 @@ export class Engine {
     const { tier, next } = this.gauge(s.id, s.active);
     if (tier === 0) return void this.events.toast(next ? `${s.name} isn't charged yet (${next} needed).` : `${s.name} is spent for this fight.`);
     const u = s.active.ultimate!;
+    // Primal Bond: your pet strikes, so it has to be out
+    const giant = u.gauge === "boss_pet_hits" ? this.pet : null;
+    if (u.gauge === "boss_pet_hits" && !giant) return void this.events.toast(`${s.name} needs your pet out.`);
     if (this.now < (p.skillReady[s.id] ?? 0) || this.now < p.globalReady) return;
     p.skillReady[s.id] = this.now + 1500;
     p.globalReady = this.now + 600;
@@ -1012,6 +1018,16 @@ export class Engine {
     if (tier === 1) bf.gauges[s.id] = { base: this.gaugeSource(u.gauge), half: true };
     const dmg = tier === 1 ? Math.min(Math.ceil(boss.maxHp * 0.5), Math.ceil(boss.hp)) : Math.ceil(boss.hp);
     this.text(p.x, p.y - PLAYER_H - 30, `${s.name.toUpperCase()}!`, "#ffd34d", 30);
+    if (giant) {
+      // your pet turns giant beside the boss and strikes
+      const side = p.x <= boss.x ? -1 : 1;
+      giant.x = boss.x + side * (MONSTER_LOOKS[boss.id].body.w / 2 + 40);
+      giant.y = boss.y;
+      giant.facing = side === -1 ? 1 : -1;
+      giant.struckAt = this.now;
+      giant.giantUntil = this.now + 1200;
+      giant.nextAt = this.now + 1200;
+    }
     this.fxAdd("area", boss.x, boss.y - MONSTER_LOOKS[boss.id].body.h / 2, 160, 700, "#ffd34d");
     if (tier === 3 && u.field) {
       // the top tier also finishes every other monster on screen
@@ -1663,6 +1679,10 @@ export class Engine {
     this.acc.dirty = true;
     this.engage(m);
     m.fight!.swings++;
+    if (hit.pet && !hit.miss && this.bossFight?.uid === m.uid) {
+      this.bossFight.petHits++;
+      this.acc.boss.petHits = (this.acc.boss.petHits ?? 0) + 1;
+    }
     const top = m.y - MONSTER_LOOKS[m.id].body.h;
     if (hit.miss) {
       this.text(m.x, top - 8, "MISS", "#c8c8d0", 22);
@@ -1718,6 +1738,7 @@ export class Engine {
           mp: 0,
           healed: 0,
           charges: 0,
+          petHits: 0,
           others: this.foesOnYou() > 1,
           items: false,
           gauges: {},

@@ -584,11 +584,10 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
   def({
     id: "primal_bond",
     name: "Primal Bond",
-    description: "Ultimate. Your pet's hits on a boss charge the gauge (50 / 100 / 200), and your pet turns giant to strike.",
+    description: "Ultimate. Your pet's hits on a boss charge the gauge (50 / 100 / 200), and your pet turns giant to strike. Needs a tamer wand in hand and your pet out.",
     kind: "active",
     conditions: { counter: "pet_solo_boss_wins", op: ">=", value: 1 },
-    effect: {},
-    enabled: false, // waits for the pet ultimate
+    effect: { weapons: ["tamer_wand"], active: { ultimate: { gauge: "boss_pet_hits", tiers: [50, 100, 200] } } },
   }),
 
   // ---------- For those who keep falling (Samuel's newbie skills) ----------

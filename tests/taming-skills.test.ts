@@ -5,6 +5,7 @@ import { attackSpec, maxHit } from "../src/lib/game/live";
 import { petAttacker } from "../src/lib/game/pets";
 import { describeCondition } from "../src/lib/game/reveal";
 import * as game from "../src/lib/game/service";
+import type { BossTally } from "../src/lib/game/live";
 import { blank, engineSetup, faceOff, give, hit, newPlayer, seeded } from "./helpers";
 
 describe("Taming mastery skills", () => {
@@ -144,5 +145,114 @@ describe("Pack Leader: two pets out at once", () => {
       { id: "b", species: "green_slime+thorn_wolf", attacker: atk },
     ]);
     expect(e.pets[1].x).toBe(x);
+  });
+});
+
+describe("Primal Bond: the pet's ultimate", () => {
+  const HOLLOW = "hollow_of_the_mire";
+  const tally = (t: Partial<BossTally>): BossTally => ({ hits: 0, parries: 0, parryDmg: 0, dodges: 0, weaponHits: 0, dmg: 0, mp: 0, healed: 0, charges: 0, ...t });
+
+  /** A tamer with a wolf out, in the Hollow at Mirefang's room. */
+  async function tamerAtBoss(t: number) {
+    const { store, p } = await newPlayer("tamer", { MP: 3, HP: 2 });
+    await game.chooseFirstPet(store, p.id, "thorn_wolf");
+    await game.liveEnter(store, p.id, HOLLOW, t - 600_000);
+    await store.applyCounters(p.id, { [`run_${HOLLOW}_room`]: { op: "set", value: 3 } });
+    const st = await game.getState(store, p.id);
+    const pl = (await store.getPlayer(p.id))!;
+    const g = petAttacker(pl.pets[0], { stats: st.derived.stats, share: 0 });
+    const cap = maxHit(attackSpec("unarmed", g), g);
+    return { store, p, cap };
+  }
+
+  it("is on, for a tamer wand, and its unlock reads plainly", () => {
+    const pb = MASTERY_SKILLS.find((s) => s.id === "primal_bond")!;
+    expect(pb.enabled).toBe(true);
+    expect(pb.effect).toEqual({ weapons: ["tamer_wand"], active: { ultimate: { gauge: "boss_pet_hits", tiers: [50, 100, 200] } } });
+    expect(describeCondition(pb.conditions)).toEqual(["Win 1 boss fight where your pet does all the damage"]);
+  });
+
+  it("a boss your pet beats all on its own unlocks it; a boss you hit too doesn't count", async () => {
+    const t = Date.now();
+    const { store, p, cap } = await tamerAtBoss(t);
+    const hp = MONSTERS.mirefang.stats.HP;
+    const n = Math.ceil(hp / cap);
+    const bites = Array.from({ length: n }, () => hit(cap, { pet: true }));
+    // you landed a hit on it too: no unlock
+    const shared = blank(HOLLOW, { type: "kill", monsterId: "mirefang", hits: [...bites, hit(1)], petToTarget: n * cap, directToTarget: 1, hitsOnTarget: n + 1, bossEnd: true, boss: tally({ weaponHits: 1, dmg: 1, petHits: n }) });
+    await game.liveReport(store, p.id, shared, seeded(), t - 300_000);
+    expect((await store.getCounters(p.id)).pet_solo_boss_wins ?? 0).toBe(0);
+    // again, the pet alone
+    await game.liveEnter(store, p.id, HOLLOW, t - 200_000);
+    await store.applyCounters(p.id, { [`run_${HOLLOW}_room`]: { op: "set", value: 3 } });
+    const solo = blank(HOLLOW, { type: "kill", monsterId: "mirefang", hits: bites, petToTarget: n * cap, hitsOnTarget: n, petKill: true, bossEnd: true, boss: tally({ petHits: n }) });
+    const r = await game.liveReport(store, p.id, solo, seeded(), t);
+    expect((await store.getCounters(p.id)).pet_solo_boss_wins).toBe(1);
+    expect(r.unlocks.map((u) => u.id)).toContain("primal_bond");
+  });
+
+  it("pet bites on the boss charge the gauge; more than landed is refused, and it needs a pet out", async () => {
+    const t = Date.now();
+    const { store, p } = await tamerAtBoss(t);
+    await give(store, p.id, "primal_bond");
+    const ult = blank(HOLLOW, { hits: [hit(210, { skillId: "primal_bond", ult: 1 })] });
+    await expect(game.liveReport(store, p.id, ult, seeded(), t - 500_000)).rejects.toThrow("isn't charged");
+    await expect(game.liveReport(store, p.id, blank(HOLLOW, { boss: tally({ petHits: 1 }) }), seeded(), t - 500_000)).rejects.toThrow("don't add up");
+    const bites = Array.from({ length: 50 }, () => hit(1, { pet: true }));
+    await game.liveReport(store, p.id, blank(HOLLOW, { hits: bites, boss: tally({ petHits: 50 }) }), seeded(), t - 400_000);
+    expect((await store.getCounters(p.id)).bf_pet_hits).toBe(50);
+    // put the pet away: no giant to strike
+    const pl = (await store.getPlayer(p.id))!;
+    await game.setActivePet(store, p.id, pl.pets[0].id, false);
+    await expect(game.liveReport(store, p.id, ult, seeded(), t - 300_000)).rejects.toThrow("no pet out");
+    await game.setActivePet(store, p.id, pl.pets[0].id);
+    await expect(game.liveReport(store, p.id, ult, seeded(), t - 200_000)).resolves.toBeTruthy();
+    // the boss fight ends: the gauge empties
+    await game.liveReport(store, p.id, blank(HOLLOW, { bossEnd: true }), seeded(), t);
+    expect((await store.getCounters(p.id)).bf_pet_hits).toBe(0);
+  });
+
+  it("in the game, pet bites fill the gauge and firing turns the pet giant beside the boss", async () => {
+    const { e, run, reports, toasts } = await engineSetup(HOLLOW, ["primal_bond"], "tamer");
+    e.setRun({ room: 3, totalRooms: 4, cleared: false });
+    e.player.x = e.map.rooms[3].x0 * 64 + 40;
+    run(50);
+    const boss = e.monsters.find((m) => m.id === "mirefang")!;
+    boss.aggro = true;
+    e.player.x = boss.x - 90;
+    e.player.y = boss.y;
+    e.player.facing = 1;
+    boss.nextAttackAt = 1e12;
+    e.player.hp = e.player.maxHp = 1e6;
+    (e as unknown as { engage(m: unknown): void }).engage(boss);
+    // no pet out: it won't fire
+    e.bossFight!.petHits = 50;
+    e.press("skill0");
+    run(16);
+    expect(toasts.at(-1)).toContain("needs your pet out");
+    expect(boss.hp).toBe(boss.maxHp);
+    e.bossFight!.petHits = 0;
+    const atk = { stats: { HP: 40, MP: 0, STR: 9, VIT: 3, AGI: 2, DEX: 5, INT: 2 }, passive: { damage_multiplier: 1 } };
+    e.setPets([{ id: "a", species: "thorn_wolf", attacker: atk }]);
+    boss.hp = boss.maxHp = 1e6;
+    run(5000);
+    const n = e.bossFight!.petHits;
+    expect(n).toBeGreaterThan(2);
+    expect(e.skillState(0)!.gauge).toMatchObject({ value: n });
+    e.flush();
+    const sent = reports.reduce((k, r) => k + (r.boss.petHits ?? 0), 0);
+    expect(sent).toBe(n);
+    expect(sent).toBe(reports.flatMap((r) => r.hits).filter((h) => h.pet && !h.miss).length);
+    // charge it and fire
+    e.bossFight!.petHits = 50;
+    run(700);
+    e.press("skill0");
+    run(16);
+    expect(boss.hp).toBe(boss.maxHp - Math.ceil(boss.maxHp / 2));
+    const pet = e.pets[0];
+    expect(pet.giantUntil).toBeGreaterThan(e.now);
+    expect(Math.abs(pet.x - boss.x)).toBeLessThan(200);
+    e.flush();
+    expect(reports.flatMap((r) => r.hits).find((h) => h.ult)).toMatchObject({ skillId: "primal_bond", ult: 1 });
   });
 });
