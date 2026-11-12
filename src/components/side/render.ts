@@ -293,6 +293,34 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
   // monsters
   for (const mo of e.monsters) drawMonsterAt(ctx, mo, now);
 
+  // your pet
+  if (e.pet) {
+    const pt = e.pet;
+    const look = MONSTER_LOOKS[pt.species];
+    ctx.save();
+    ctx.translate(pt.x, pt.y);
+    if (!look.flying) {
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, look.body.w * 0.36, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.scale(pt.facing * 0.8, 0.8);
+    const pose = now - pt.struckAt < 240 ? "attack" : pt.moving ? (Math.floor(pt.walkT / 180) % 2 ? "walk1" : "walk0") : "rest";
+    drawMonster(ctx, pt.species, pose, now);
+    ctx.restore();
+    // a small heart: this one is yours
+    const top = -look.body.h * 0.8 - (look.flying ? 30 : 10);
+    ctx.fillStyle = "#ff7aa8";
+    ctx.beginPath();
+    ctx.moveTo(0, top + 6);
+    ctx.bezierCurveTo(-9, top - 2, -5, top - 9, 0, top - 4);
+    ctx.bezierCurveTo(5, top - 9, 9, top - 2, 0, top + 6);
+    ctx.fill();
+    ctx.restore();
+  }
+
   // Phantom Legion shadow clones, then the player
   for (const c of e.clones) {
     const left = (c.until - now) / 1000;

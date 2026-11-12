@@ -80,7 +80,22 @@ export interface Player {
   stats: Stats; // points spent (allocated), not derived
   lockedStats: StatKey[];
   dungeonAttempts: Record<string, number>;
+  pets: Pet[];
   createdAt: string;
+}
+
+/** A tamed monster. Its stats are its species' numbers plus the points you placed. */
+export interface Pet {
+  id: string;
+  species: string; // monster id
+  level: number;
+  exp: number;
+  freePoints: number;
+  stats: { HP: number; STR: number; VIT: number; AGI: number; DEX: number; INT: number }; // points placed
+  petPoints: number; // from kills while out; will switch on pet skills
+  kills: number; // killing blows the pet landed
+  active: boolean; // out and fighting beside you (one at a time)
+  tamedAt: string;
 }
 
 export type Counters = Record<string, number>;

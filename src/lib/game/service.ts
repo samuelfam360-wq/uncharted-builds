@@ -21,6 +21,7 @@ import { findUnlocks, type BattleSummary } from "./rules";
 import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport, type ReportHit } from "./live";
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
 import { describeCondition, revealHints } from "./reveal";
+import { FIRST_PET_CHOICES, PET_ATTACK_MS, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
 import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
@@ -166,6 +167,8 @@ export async function getState(store: GameStore, playerId: string) {
       }),
     inventory: inventory.map((i) => ({ ...i, name: ITEMS[i.itemId]?.name ?? i.itemId, description: ITEMS[i.itemId]?.description ?? "", edible: ITEMS[i.itemId]?.edible ?? false })),
     uniqueItem: unique,
+    pets: player.pets.map(publicPet),
+    firstPetChoices: canChooseFirstPet(player) ? FIRST_PET_CHOICES.map((id) => ({ species: id, name: speciesName(id) })) : [],
     battle: battle ? publicBattle(battle) : null,
     zones: Object.values(ZONES).map((z) => ({ id: z.id, name: z.name, kind: z.kind, description: z.description })),
     weapons: Object.values(WEAPONS).map((w) => ({ ...w, owned: player.ownedWeapons.includes(w.type) })),
@@ -493,6 +496,8 @@ export async function liveEnter(store: GameStore, playerId: string, zoneId: stri
   // A new map ends any fight: hits in a row and boss gauges start over.
   const deltas: CounterDeltas = { live_t: { op: "set", value: now }, hit_streak: { op: "set", value: 0 } };
   resetBossFight(deltas, await store.listSkillDefs());
+  // a new map: monsters start fresh, so does what was owed to them and the taming evidence
+  for (const k of ["dmg_bank", "pet_bank", "swing_bank", "fx_items", "fx_dodges", "fx_blocks", "fx_poison", "fx_silence", "fx_swamp"]) deltas[k] = { op: "set", value: 0 };
   for (const z of Object.values(ZONES)) {
     if (z.kind === "dungeon" && z.id !== zoneId) deltas[runKey(z.id, "active")] = { op: "set", value: 0 };
   }
@@ -583,7 +588,21 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   };
   const waves = new Map<number, number>();
   const ultFired: { id: string; tier: 1 | 2 | 3; dmg: number }[] = [];
+  const pet = activePet(player);
+  const petCap = pet ? maxHit(attackSpec("unarmed", petAttacker(pet)), petAttacker(pet)) + 1 : 0;
+  let petSwings = 0;
+  let petLanded = 0;
   for (const h of report.hits) {
+    if (h.pet) {
+      // your pet's bite: bare-handed, with its own stats
+      if (!pet) throw new GameError("You have no pet out");
+      petSwings++;
+      if (!h.miss) {
+        if (h.dmg > petCap) throw new GameError("A hit was bigger than possible");
+        petLanded += h.dmg;
+      }
+      continue;
+    }
     if (h.skillId === "vengeance_vault") {
       if (!ps.vault) throw new GameError("That skill isn't equipped");
       if (!h.miss) waves.set(h.wave ?? 0, Math.max(waves.get(h.wave ?? 0) ?? 0, h.dmg));
@@ -687,6 +706,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   const chainMax = ps.silent_finish ? ps.silent_finish.chain_max - ps.silent_finish.mult : 0;
   deltas.stealth_chain = { op: "set", value: stealthKill ? Math.min(chainMax, stealthChain + 1) : stealthHits || report.hitsTaken ? 0 : stealthChain };
   if (plainHits > rate * elapsedSec + 8) throw new GameError("Too many hits for the time that passed");
+  if (petSwings > (elapsedSec * 1000) / (PET_ATTACK_MS * 0.9) + 3) throw new GameError("Too many hits for the time that passed");
   if (report.hitsTaken > elapsedSec * 10 + 5) throw new GameError("Too many hits taken for the time that passed");
   if (riposteHits > report.parries) throw new GameError("More counters than parries");
   if (stormHits > report.hitsTaken * 30) throw new GameError("More counters than hits taken");
@@ -899,6 +919,30 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   let claimed: string | null = null;
   let summary: BattleSummary | null = null;
   let run: { room: number; totalRooms: number; cleared: boolean } | null = null;
+  let tamed: ReturnType<typeof publicPet> | null = null;
+  // Taming evidence since you came onto this map (or last tamed something).
+  const statusCount = (t: string) => report.statuses.filter((x) => x === t).length;
+  const fx = {
+    items: (counters.fx_items ?? 0) + report.itemsUsed.length,
+    dodges: (counters.fx_dodges ?? 0) + report.dodged,
+    blocks: (counters.fx_blocks ?? 0) + report.blocks,
+    poison: (counters.fx_poison ?? 0) + statusCount("poison"),
+    silence: (counters.fx_silence ?? 0) + statusCount("silence"),
+    swamp: (counters.fx_swamp ?? 0) + report.swampTicks + (report.inSwamp ? 1 : 0),
+  };
+  let resetFx = report.type === "death";
+  // Damage and swings not yet used up by a kill (a fight can span several reports).
+  const bankCap = Math.max(bossMaxHp, plainMaxHp) * 3;
+  const banks = {
+    dmg: Math.min(bankCap, (counters.dmg_bank ?? 0) + landed),
+    pet: Math.min(bankCap, (counters.pet_bank ?? 0) + petLanded),
+    swings: Math.min(5000, (counters.swing_bank ?? 0) + report.hits.length),
+  };
+  const spendBanks = (dmg: number, petDmg: number, swings: number) => {
+    banks.dmg -= dmg;
+    banks.pet -= petDmg;
+    banks.swings -= swings;
+  };
 
   if (report.type === "kill") {
     if (hpCeiling <= 0) throw new GameError("Rest in town first");
@@ -906,9 +950,13 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     if (!m) throw new GameError("Unknown monster");
     if (zone.kind === "town") throw new GameError("There's nothing to fight there");
     const direct = report.directToTarget ?? 0;
-    if (direct > landed) throw new GameError("That monster took more damage than you dealt");
-    if ((report.hitsOnTarget ?? 0) > report.hits.length) throw new GameError("More hits on the monster than swings");
-    if (direct + (report.indirectToTarget ?? 0) < m.stats.HP) throw new GameError("That monster wasn't defeated yet");
+    const petDmg = report.petToTarget ?? 0;
+    // a fight can span several reports, so damage and swings carry over in a bank
+    if (direct > banks.dmg) throw new GameError("That monster took more damage than you dealt");
+    if (petDmg > banks.pet) throw new GameError("That monster took more damage than your pet dealt");
+    if ((report.hitsOnTarget ?? 0) > banks.swings) throw new GameError("More hits on the monster than swings");
+    if (direct + petDmg + (report.indirectToTarget ?? 0) < m.stats.HP) throw new GameError("That monster wasn't defeated yet");
+    spendBanks(direct, petDmg, report.hitsOnTarget ?? 0);
     let dungeonCleared = false;
     let directRun = -1;
     let firstAttempt = false;
@@ -958,6 +1006,16 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     const r = grantExp(player, exp);
     Object.assign(player, r.player);
     player.gold += m.gold;
+    // the pet that's out shares the win
+    const out = activePet(player);
+    if (out) {
+      out.petPoints += m.isBoss ? PET_POINTS.boss : PET_POINTS.kill;
+      if (report.petKill && petDmg > 0) {
+        out.kills++;
+        inc(deltas, "pet_kills");
+      }
+      if (grantPetExp(out, exp) > 0) log.push(`Your ${speciesName(out.species)} reached level ${out.level}!`);
+    }
     for (const id of drops) inv.set(id, (inv.get(id) ?? 0) + 1);
     if (r.levelsGained > 0) {
       levelUp = true;
@@ -1003,6 +1061,42 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       dungeon_direct_damage: directRun,
       dungeon_first_attempt: firstAttempt,
     };
+  } else if (report.type === "tame") {
+    if (hpCeiling <= 0) throw new GameError("Rest in town first");
+    const m = report.monsterId ? MONSTERS[report.monsterId] : undefined;
+    if (!m) throw new GameError("Unknown monster");
+    if (!TAMEABLE.includes(m.id)) throw new GameError("That monster can't be tamed");
+    if (player.weapon !== "tamer_wand") throw new GameError("You need a tamer wand in hand to tame");
+    if (zone.kind === "town") throw new GameError("There's nothing to tame there");
+    const direct = report.directToTarget ?? 0;
+    const petDmg = report.petToTarget ?? 0;
+    if (direct > banks.dmg) throw new GameError("That monster took more damage than you dealt");
+    if (petDmg > banks.pet) throw new GameError("That monster took more damage than your pet dealt");
+    if ((report.hitsOnTarget ?? 0) > banks.swings) throw new GameError("More hits on the monster than swings");
+    const dealt = direct + petDmg + (report.indirectToTarget ?? 0);
+    if (dealt < m.stats.HP * (1 - TAME_HP_SHARE)) throw new GameError("It's still too strong to tame");
+    if (dealt >= m.stats.HP) throw new GameError("That monster was already defeated");
+    spendBanks(direct, petDmg, report.hitsOnTarget ?? 0);
+    if (!tameProofOk(m.id, fx, report)) throw new GameError("It won't come with you yet");
+    if (zone.kind === "dungeon") {
+      // a tamed room monster leaves the room, like a defeated one
+      if (!counters[runKey(zone.id, "active")]) throw new GameError("Enter the dungeon first");
+      const room = counters[runKey(zone.id, "room")] ?? 0;
+      if (zone.rooms![room] !== m.id) throw new GameError("That monster isn't in this room");
+      deltas[runKey(zone.id, "room")] = { op: "set", value: room + 1 };
+      run = { room: room + 1, totalRooms: zone.rooms!.length, cleared: false };
+    } else if (!zone.encounters!.some((e) => e.monsterId === m.id)) {
+      throw new GameError("That monster doesn't live here");
+    }
+    const pet = newPet(m.id, randomUUID(), new Date(now));
+    if (!activePet(player)) pet.active = true;
+    player.pets = [...player.pets, pet];
+    inc(deltas, "tames");
+    inc(deltas, `tamed_${m.id}`);
+    if (!counters[`tamed_${m.id}`]) inc(deltas, "species_tamed");
+    log.push(`${m.name} joined you!${pet.active ? " It fights beside you now." : " Send it out from the Pets menu."}`);
+    tamed = publicPet(pet);
+    resetFx = true;
   } else if (report.type === "death") {
     player.currentHp = 0;
     player.gold = Math.floor(player.gold * 0.9);
@@ -1026,10 +1120,16 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     };
   }
 
+  const dead = report.type === "death";
+  deltas.dmg_bank = { op: "set", value: dead ? 0 : banks.dmg };
+  deltas.pet_bank = { op: "set", value: dead ? 0 : banks.pet };
+  deltas.swing_bank = { op: "set", value: dead ? 0 : banks.swings };
+  for (const [k, v] of Object.entries(fx)) deltas[`fx_${k}`] = { op: "set", value: resetFx ? 0 : Math.min(1e6, v) };
+
   // ----- mastery: the weapon in hand grows with use -----
   const mastery = growMastery(deltas, counters, player, ps.mastery_growth, {
     hits: landedCount,
-    kills: report.type === "kill" ? 1 : 0,
+    kills: report.type === "kill" || report.type === "tame" ? 1 : 0,
     blocks: player.weapon === "large_shield" ? report.blocks : 0,
     skills: Object.values(report.skillUses).reduce((n, v) => n + v, 0),
   });
@@ -1056,10 +1156,34 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     log,
     unlocks,
     mastery,
+    tamed,
   };
 }
 
 // ---------- helpers for live fights ----------
+
+/**
+ * Each species' hidden taming condition, as far as the server can see it:
+ * the browser tracks the exact moment, the server checks the counts behind it.
+ */
+function tameProofOk(species: string, fx: Record<"items" | "dodges" | "blocks" | "poison" | "silence" | "swamp", number>, report: LiveReport): boolean {
+  switch (species) {
+    case "green_slime":
+      return fx.items >= 1;
+    case "horned_rabbit":
+      return fx.dodges >= 3;
+    case "bog_toad":
+      return fx.poison >= 1 && fx.swamp >= 1;
+    case "thorn_wolf":
+      return report.duel === true && report.itemsUsed.length === 0;
+    case "mire_bat":
+      return fx.silence >= 1;
+    case "moss_golem":
+      return fx.blocks >= 10;
+    default:
+      return false;
+  }
+}
 
 /** Monsters that can appear in a zone. */
 function zoneMonsterIds(zoneId: string): string[] {
@@ -1137,4 +1261,44 @@ function growMastery(
     if (lvBefore < 20 && level >= 20) inc(deltas, "masteries_lv20");
   }
   return { id, name: MASTERIES.find((m) => m.id === id)!.name, level, gained: gain, levelUp: level > lvBefore };
+}
+
+// ---------- pets ----------
+
+async function petPlayer(store: GameStore, playerId: string) {
+  if (await store.getActiveBattle(playerId)) throw new GameError("You're in a battle");
+  const player = await store.getPlayer(playerId);
+  if (!player) throw new GameError("Character not found", 404);
+  return player;
+}
+
+/** A new Tamer picks a level 1 first pet from the Mirewood Fields monsters. */
+export async function chooseFirstPet(store: GameStore, playerId: string, species: string) {
+  const player = await petPlayer(store, playerId);
+  if (!canChooseFirstPet(player)) throw new GameError("Only a new Tamer can pick a first pet");
+  if (!FIRST_PET_CHOICES.includes(species)) throw new GameError("Pick one of the Mirewood Fields monsters");
+  const pet = newPet(species, randomUUID());
+  pet.active = true;
+  player.pets = [pet];
+  await store.savePlayer(player);
+  return { pet: publicPet(pet), log: [`${speciesName(species)} is your first pet. It fights beside you now.`] };
+}
+
+/** Send a pet out (only one at a time), or call it back (petId null). */
+export async function setActivePet(store: GameStore, playerId: string, petId: string | null) {
+  const player = await petPlayer(store, playerId);
+  if (petId !== null && !player.pets.some((p) => p.id === petId)) throw new GameError("That pet isn't yours");
+  player.pets = player.pets.map((p) => ({ ...p, active: p.id === petId }));
+  await store.savePlayer(player);
+  return { ok: true };
+}
+
+/** Place a pet's free stat points. */
+export async function petAddPoints(store: GameStore, playerId: string, petId: string, alloc: Record<string, number>) {
+  const player = await petPlayer(store, playerId);
+  const pet = player.pets.find((p) => p.id === petId);
+  if (!pet) throw new GameError("That pet isn't yours");
+  addPetPoints(pet, alloc ?? {});
+  await store.savePlayer(player);
+  return { pet: publicPet(pet) };
 }

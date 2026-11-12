@@ -30,9 +30,24 @@ export default function MenuPanels({
   const allocTotal = Object.values(alloc).reduce((n, v) => n + (v ?? 0), 0);
   const skill = (skillId: string, action: string) => run(() => api("/api/skills", { skillId, action }));
   const town = (body: Record<string, unknown>) => run(() => api("/api/town", body));
+  const pets = (body: Record<string, unknown>) => run(() => api("/api/pets", body));
 
   return (
     <div className="space-y-4">
+    {state.firstPetChoices.length > 0 && (
+      <section className="panel border-gold/60">
+        <div className="label text-gold">Tamer</div>
+        <h3 className="title mt-1 text-lg text-gold">Choose your first pet</h3>
+        <p className="mt-1 text-sm">Pick one of the Mirewood Fields monsters. It starts at level 1 and fights beside you.</p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {state.firstPetChoices.map((c) => (
+            <button key={c.species} className="btn" disabled={busy || !!battle} onClick={() => pets({ action: "choose_first", species: c.species })}>
+              {c.name}
+            </button>
+          ))}
+        </div>
+      </section>
+    )}
     {offered.map((s) => (
       <section key={s.id} className="panel border-gold/60">
         <div className="label text-gold">A power awakens</div>
@@ -189,6 +204,54 @@ export default function MenuPanels({
         })}
       </ul>
     </section>
+
+    {state.pets.length > 0 && (
+      <section className="panel">
+        <h3 className="title text-lg">Pets</h3>
+        <p className="mt-1 text-xs text-muted">One pet can be out at a time. It shares the EXP of every fight it&apos;s out for, and earns pet points from kills.</p>
+        <ul className="mt-2 space-y-2">
+          {state.pets.map((pet) => (
+            <li key={pet.id} className={`rounded-lg bg-panel-2 p-2 ${pet.active ? "ring-1 ring-moss/70" : ""}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold">
+                  {pet.name} <span className="text-xs text-muted">Lv {pet.level}</span>
+                </span>
+                <button
+                  className={`btn px-2 py-0.5 text-xs ${pet.active ? "border-moss text-moss" : ""}`}
+                  disabled={busy || !!battle}
+                  onClick={() => pets({ action: "set_active", petId: pet.active ? null : pet.id })}
+                >
+                  {pet.active ? "Out · call back" : "Send out"}
+                </button>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded bg-black/40">
+                <div className="h-full bg-gold" style={{ width: `${pet.expToNext ? Math.min(100, (pet.exp / pet.expToNext) * 100) : 100}%` }} />
+              </div>
+              <div className="mt-0.5 text-[10px] text-muted">
+                EXP {pet.expToNext ? `${pet.exp}/${pet.expToNext}` : "max level"} · Pet points {pet.petPoints} · Kills {pet.kills}
+              </div>
+              <div className="mt-1 grid grid-cols-3 gap-1 text-xs">
+                {(Object.keys(pet.stats) as (keyof typeof pet.stats)[]).map((k) => (
+                  <div key={k} className="flex items-center gap-1">
+                    <span className="w-7 font-semibold">{k}</span>
+                    <span>
+                      {pet.stats[k]}
+                      <span className="text-muted">/{pet.caps[k]}</span>
+                    </span>
+                    {pet.freePoints > 0 && pet.stats[k] < pet.caps[k] && (
+                      <button className="btn ml-auto px-1.5 py-0 text-[10px]" disabled={busy || !!battle} onClick={() => pets({ action: "add_points", petId: pet.id, alloc: { [k]: 1 } })}>
+                        +
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {pet.freePoints > 0 && <div className="mt-1 text-[10px] text-gold">{pet.freePoints} points to place</div>}
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
 
     {state.uniqueItem && (
       <section className="panel border-gold/60">
