@@ -10,7 +10,7 @@ export const POST = handle(async (body) => {
     case "choose_first":
       return chooseFirstPet(store, id, String(body.species ?? ""));
     case "set_active":
-      return setActivePet(store, id, typeof body.petId === "string" ? body.petId : null);
+      return setActivePet(store, id, typeof body.petId === "string" ? body.petId : null, body.out !== false);
     case "add_points":
       return petAddPoints(store, id, String(body.petId ?? ""), body.alloc && typeof body.alloc === "object" ? body.alloc : {});
     case "breed":

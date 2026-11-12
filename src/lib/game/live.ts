@@ -252,6 +252,7 @@ export interface LiveReport {
   jumpKill?: boolean; // kill: by a lance attack made in the air
   petToTarget?: number; // kill / tame: damage your pet did to that monster
   petKill?: boolean; // kill: your pet landed the killing blow
+  petKillId?: string; // kill: which of your pets it was
 }
 
 const STATUS_SET = new Set<string>(["poison", "paralysis", "burn", "freeze", "silence", "slow", "stun"]);
@@ -360,5 +361,6 @@ export function cleanReport(body: unknown): LiveReport {
     jumpKill: b.jumpKill === true,
     petToTarget: num(b.petToTarget),
     petKill: b.petKill === true,
+    petKillId: typeof b.petKillId === "string" ? b.petKillId.slice(0, 64) : undefined,
   };
 }

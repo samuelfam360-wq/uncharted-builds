@@ -223,7 +223,9 @@ export default function MenuPanels({
     {state.pets.length > 0 && (
       <section className="panel">
         <h3 className="title text-lg">Pets</h3>
-        <p className="mt-1 text-xs text-muted">One pet can be out at a time. It shares the EXP of every fight it&apos;s out for, and earns pet points from kills.</p>
+        <p className="mt-1 text-xs text-muted">
+          Pets out: {state.pets.filter((p) => p.active).length}/{state.summonLimit}. A pet shares the EXP of every fight it&apos;s out for, and earns pet points from kills.
+        </p>
         <ul className="mt-2 space-y-2">
           {state.pets.map((pet) => (
             <li key={pet.id} className={`rounded-lg bg-panel-2 p-2 ${pet.active ? "ring-1 ring-moss/70" : ""}`}>
@@ -234,7 +236,7 @@ export default function MenuPanels({
                 <button
                   className={`btn px-2 py-0.5 text-xs ${pet.active ? "border-moss text-moss" : ""}`}
                   disabled={busy || !!battle}
-                  onClick={() => pets({ action: "set_active", petId: pet.active ? null : pet.id })}
+                  onClick={() => pets({ action: "set_active", petId: pet.id, out: !pet.active })}
                 >
                   {pet.active ? "Out · call back" : "Send out"}
                 </button>

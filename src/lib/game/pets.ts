@@ -144,6 +144,12 @@ export function attackerFromPetStats(s: Record<PetStat, number>): Attacker {
 
 export const activePet = (player: Player): Pet | null => player.pets.find((p) => p.active) ?? null;
 
+/** How many pets can be out at once: 1, more with Pack Leader. */
+export const summonLimit = (passive: { pack_leader?: { extra: number } }) => 1 + (passive.pack_leader?.extra ?? 0);
+
+/** The pets out and fighting (no more than the limit). */
+export const activePets = (player: Player, limit: number): Pet[] => player.pets.filter((p) => p.active).slice(0, limit);
+
 /** EXP for the pet that's out. Returns the levels it gained. */
 export function grantPetExp(p: Pet, exp: number): number {
   let gained = 0;

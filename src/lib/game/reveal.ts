@@ -116,6 +116,8 @@ function counterText(key: string, cur: number, target: number): string {
       return `Land 100 bow hits in a row on one target without missing, ${n(left)} more times`;
     case "spells_survived":
       return `Survive ${n(left)} more enemy spells`;
+    case "max_pack_fights":
+      return `Win ${n(left)} more fights with as many pets out as you can have`;
     case "pet_kills":
       return `Your pet lands ${n(left)} more killing blows`;
     case "species_tamed":

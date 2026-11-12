@@ -46,10 +46,12 @@ interface Toast {
 
 const SAVE_KEY = (id: string) => `ub-side-${id}`;
 
-/** The pet that's out, as the game screen needs it. */
-function petOf(st: GameState) {
-  const p = st.pets.find((x) => x.active);
-  return p ? { species: p.species, attacker: attackerFromPetStats(p.stats) } : null;
+/** The pets that are out, as the game screen needs them. */
+function petsOf(st: GameState) {
+  return st.pets
+    .filter((x) => x.active)
+    .slice(0, st.summonLimit)
+    .map((p) => ({ id: p.id, species: p.species, attacker: attackerFromPetStats(p.stats) }));
 }
 
 function loadSpot(playerId: string): { map: SideMapId; x: number; row: number } {
@@ -307,7 +309,7 @@ export default function SideGame({
           events: { report: (r) => send(r), toast: (t) => toast(t) },
           now: performance.now(),
         });
-        e.setPet(petOf(st));
+        e.setPets(petsOf(st));
         engineRef.current = e;
         setEngine(e);
         adoptNext.current = false;
@@ -338,7 +340,7 @@ export default function SideGame({
       adopt ? state.player.currentMp : undefined,
       quiet ? state.inventory : undefined,
     );
-    e.setPet(petOf(state));
+    e.setPets(petsOf(state));
     if (adopt) adoptNext.current = false;
   }, [state]);
 

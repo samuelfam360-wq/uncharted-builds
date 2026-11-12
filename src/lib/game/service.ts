@@ -21,7 +21,7 @@ import { findUnlocks, type BattleSummary } from "./rules";
 import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport, type ReportHit } from "./live";
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
 import { describeCondition, revealHints } from "./reveal";
-import { BREED_LEVEL, BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, isBreed, speciesParts, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
+import { BREED_LEVEL, BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, isBreed, speciesParts, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, activePets, summonLimit, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
 import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type Counters, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
@@ -174,6 +174,7 @@ export async function getState(store: GameStore, playerId: string) {
     inventory: inventory.map((i) => ({ ...i, name: ITEMS[i.itemId]?.name ?? i.itemId, description: ITEMS[i.itemId]?.description ?? "", edible: ITEMS[i.itemId]?.edible ?? false })),
     uniqueItem: unique,
     pets: player.pets.map((p) => publicPet(p, gloryOf(d))),
+    summonLimit: summonLimit(d.passive),
     breeding: { level: BREED_LEVEL, tamingLevel: BREED_TAMING_LEVEL, tamingOk: masteryLevel(counters[masteryKey("taming")] ?? 0) >= BREED_TAMING_LEVEL },
     firstPetChoices: canChooseFirstPet(player) ? FIRST_PET_CHOICES.map((id) => ({ species: id, name: speciesName(id) })) : [],
     // boss eggs you carry: how to hatch one stays hidden until you're 80% of the way there
@@ -609,9 +610,11 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   };
   const waves = new Map<number, number>();
   const ultFired: { id: string; tier: 1 | 2 | 3; dmg: number }[] = [];
-  const pet = activePet(player);
-  const petAtk = pet ? petAttacker(pet, gloryOf(d)) : null;
-  const petCap = petAtk ? maxHit(attackSpec("unarmed", petAtk), petAtk) + 1 : 0;
+  const limit = summonLimit(ps);
+  const outPets = activePets(player, limit);
+  const pet = outPets[0] ?? null;
+  // the strongest bite among your pets out
+  const petCap = Math.max(0, ...outPets.map((x) => petAttacker(x, gloryOf(d))).map((a) => maxHit(attackSpec("unarmed", a), a) + 1));
   let petSwings = 0;
   let petLanded = 0;
   for (const h of report.hits) {
@@ -735,7 +738,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   const chainMax = ps.silent_finish ? ps.silent_finish.chain_max - ps.silent_finish.mult : 0;
   deltas.stealth_chain = { op: "set", value: stealthKill ? Math.min(chainMax, stealthChain + 1) : stealthHits || report.hitsTaken ? 0 : stealthChain };
   if (plainHits > rate * elapsedSec + 8) throw new GameError("Too many hits for the time that passed");
-  if (petSwings > (elapsedSec * 1000) / (PET_ATTACK_MS * 0.9) + 3) throw new GameError("Too many hits for the time that passed");
+  if (petSwings > (Math.max(1, outPets.length) * elapsedSec * 1000) / (PET_ATTACK_MS * 0.9) + 3 * Math.max(1, outPets.length)) throw new GameError("Too many hits for the time that passed");
   if (report.hitsTaken > elapsedSec * 10 + 5) throw new GameError("Too many hits taken for the time that passed");
   if (riposteHits > report.parries) throw new GameError("More counters than parries");
   if (stormHits > report.hitsTaken * 30) throw new GameError("More counters than hits taken");
@@ -1041,16 +1044,18 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     const r = grantExp(player, exp);
     Object.assign(player, r.player);
     player.gold += m.gold;
-    // the pet that's out shares the win
-    const out = activePet(player);
-    if (out) {
+    // the pets that are out share the win
+    for (const out of outPets) {
       out.petPoints += m.isBoss ? PET_POINTS.boss : PET_POINTS.kill;
-      if (report.petKill && petDmg > 0) {
-        out.kills++;
-        inc(deltas, "pet_kills");
-      }
       if (grantPetExp(out, Math.round(exp * (ps.shared_glory?.exp_mult ?? 1))) > 0) log.push(`Your ${speciesName(out.species)} reached level ${out.level}!`);
     }
+    if (report.petKill && petDmg > 0 && outPets.length) {
+      const killer = outPets.find((x) => x.id === report.petKillId) ?? outPets[0];
+      killer.kills++;
+      inc(deltas, "pet_kills");
+    }
+    // Pack Leader's unlock: a win with as many pets out as you can have
+    if (outPets.length >= limit && outPets.length > 0) inc(deltas, "max_pack_fights");
     for (const id of drops) inv.set(id, (inv.get(id) ?? 0) + 1);
     // a boss beaten fast enough (timed from when its room opened) leaves its egg, once per player
     const egg = BOSS_EGGS[m.id];
@@ -1365,11 +1370,27 @@ export async function chooseFirstPet(store: GameStore, playerId: string, species
   return { pet: publicPet(pet), log: [`${speciesName(species)} is your first pet. It fights beside you now.`] };
 }
 
-/** Send a pet out (only one at a time), or call it back (petId null). */
-export async function setActivePet(store: GameStore, playerId: string, petId: string | null) {
+/**
+ * Send a pet out or call it back. petId null calls them all back. With room for
+ * only one pet, sending another swaps them; Pack Leader makes room for more.
+ */
+export async function setActivePet(store: GameStore, playerId: string, petId: string | null, out = true) {
   const player = await petPlayer(store, playerId);
-  if (petId !== null && !player.pets.some((p) => p.id === petId)) throw new GameError("That pet isn't yours");
-  player.pets = player.pets.map((p) => ({ ...p, active: p.id === petId }));
+  if (petId === null) {
+    player.pets = player.pets.map((p) => ({ ...p, active: false }));
+  } else {
+    const pet = player.pets.find((p) => p.id === petId);
+    if (!pet) throw new GameError("That pet isn't yours");
+    if (!out) pet.active = false;
+    else if (!pet.active) {
+      const { skills, defs, unique } = await load(store, playerId);
+      const limit = summonLimit(derive(player, skills, defs, unique).passive);
+      const outNow = player.pets.filter((p) => p.active);
+      if (limit === 1) for (const p of outNow) p.active = false;
+      else if (outNow.length >= limit) throw new GameError(`Only ${limit} pets can be out at once`);
+      pet.active = true;
+    }
+  }
   await store.savePlayer(player);
   return { ok: true };
 }

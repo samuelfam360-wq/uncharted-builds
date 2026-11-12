@@ -294,8 +294,7 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
   for (const mo of e.monsters) drawMonsterAt(ctx, mo, now);
 
   // your pet
-  if (e.pet) {
-    const pt = e.pet;
+  for (const pt of e.pets) {
     const look = petLookOf(pt.species);
     // a boss pet (or one bred from a boss) is a baby: much smaller than the real thing
     const ps = pt.species.split("+").some((s) => MONSTERS[s]?.isBoss) ? 0.4 : 0.8;
