@@ -59,12 +59,23 @@ export const TAME_CONDITIONS: Record<string, { text: string; goal: number }> = {
   moss_golem: { text: "Block 10 of its Crushing Fists in one fight", goal: 10 },
 };
 
+/** A bred mixed monster's species is its parent species joined with "+": these are the parts. */
+export const speciesParts = (species: string) => species.split("+");
+export const isBreed = (species: string) => species.includes("+");
+
 export function speciesName(species: string) {
-  return MONSTERS[species]?.name ?? species;
+  return speciesParts(species)
+    .map((s) => MONSTERS[s]?.name ?? s)
+    .join(" × ");
+}
+
+/** The breed two pets make: every species in both, once each, in a fixed order. */
+export function breedSpecies(a: string, b: string): string {
+  return [...new Set([...speciesParts(a), ...speciesParts(b)])].sort().join("+");
 }
 
 export function newPet(species: string, id: string, now = new Date()): Pet {
-  if (!MONSTERS[species]) throw new GameError("Unknown monster");
+  if (!speciesParts(species).every((s) => MONSTERS[s])) throw new GameError("Unknown monster");
   return {
     id,
     species,
@@ -184,6 +195,7 @@ export function publicPet(p: Pet, glory?: Glory | null) {
     stats: s,
     caps: Object.fromEntries(PET_STATS.map((k) => [k, capOf(p, k)])) as Record<PetStat, number>,
     parents: p.parents ? p.parents.map(speciesName) : null,
+    bred: isBreed(p.species),
     petPoints: p.petPoints,
     kills: p.kills,
     active: p.active,
@@ -201,14 +213,14 @@ export const BREED_TAMING_LEVEL = 2;
 export const BREED_BONUS_POINTS = 10;
 
 /**
- * Breed two pets. The parents stay. The baby is level 1, of the species you pick
- * (one of the parents'), starts from the average of both parents' stats and can
- * grow to the higher parent's cap in each stat.
+ * Breed two pets. The parents stay. The baby is a new mixed monster made of both
+ * parents (it looks like both), level 1, starting from the average of both
+ * parents' stats and able to grow to the higher parent's cap in each stat.
  */
-export function breed(a: Pet, b: Pet, species: string, id: string, now = new Date()): Pet {
+export function breed(a: Pet, b: Pet, id: string, now = new Date()): Pet {
   if (a.id === b.id) throw new GameError("Pick two different pets");
   if (a.level < BREED_LEVEL || b.level < BREED_LEVEL) throw new GameError(`Both pets must be level ${BREED_LEVEL} to breed`);
-  if (species !== a.species && species !== b.species) throw new GameError("The baby must be one of its parents' species");
+  const species = breedSpecies(a.species, b.species);
   const sa = petStats(a);
   const sb = petStats(b);
   const caps = {} as Record<PetStat, number>;

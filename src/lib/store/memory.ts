@@ -2,7 +2,7 @@ import type { BattleState } from "../game/combat";
 import { ALL_SKILLS } from "../game/data/all-skills";
 import { UNIQUE_ITEMS } from "../game/data/world";
 import type { Counters, InventoryItem, Player, PlayerSkill, SkillDefinition, UniqueItem, UnlockLogEntry } from "../game/types";
-import type { GameStore, GrantOptions } from "./types";
+import type { BreedRecord, GameStore, GrantOptions } from "./types";
 
 /**
  * In-memory store so the game runs with no Supabase project (local play and tests).
@@ -132,6 +132,21 @@ export class MemoryStore implements GameStore {
       ownerName: u.ownerId ? this.players.get(u.ownerId)?.name ?? null : null,
     }));
   }
+  private breeds = new Map<string, BreedRecord>();
+  async recordBreed(id: string, parts: string[], playerId: string) {
+    const b = this.breeds.get(id);
+    if (b) {
+      b.timesBred++;
+      return { isNew: false, times: b.timesBred };
+    }
+    const name = this.players.get(playerId)?.name ?? null;
+    this.breeds.set(id, { id, parts: [...parts], firstBredBy: playerId, firstBredByName: name, firstBredAt: new Date().toISOString(), timesBred: 1 });
+    return { isNew: true, times: 1 };
+  }
+  async listBreeds() {
+    return [...this.breeds.values()].map((b) => structuredClone(b)).reverse();
+  }
+
   async claimUniqueItem(itemId: string, playerId: string) {
     const u = this.uniques.get(itemId);
     if (!u || u.ownerId || u.claimedAt) return false;
