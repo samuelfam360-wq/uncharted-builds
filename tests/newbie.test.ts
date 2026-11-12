@@ -16,20 +16,20 @@ describe("skills for those who keep falling", () => {
     const by = new Map(MASTERY_SKILLS.map((s) => [s.id, s]));
     const txt = (id: string) => describeCondition(by.get(id)!.conditions).join(" | ");
     expect(by.get("green_slimes_mercy")?.name).toBe("Green Slime's Mercy");
-    expect(txt("green_slimes_mercy")).toBe("Fall to a Green Slime 50 times");
+    expect(txt("green_slimes_mercy")).toBe("Fall to a Green Slime 20 times");
     expect(by.get("horn_rabbit_weapons")?.name).toBe("Horn Rabbit Weapons");
-    expect(txt("horn_rabbit_weapons")).toBe("Fall to a Horned Rabbit 50 times | Defeat 50 Horned Rabbits");
+    expect(txt("horn_rabbit_weapons")).toBe("Fall to a Horned Rabbit 20 times | Defeat 50 Horned Rabbits");
     expect(by.get("poison_toad_armour")?.name).toBe("Poison Toad Armour");
-    expect(txt("poison_toad_armour")).toBe("Fall to a Bog Toad's poison 50 times");
+    expect(txt("poison_toad_armour")).toBe("Fall to a Bog Toad's poison 20 times");
     expect(by.get("wolfs_scars")?.name).toBe("Wolf's Scars");
-    expect(txt("wolfs_scars")).toBe("Fall to a Thorn Wolf 50 times");
+    expect(txt("wolfs_scars")).toBe("Fall to a Thorn Wolf 20 times");
   });
 
-  it("falling 50 times to a Green Slime unlocks Green Slime's Mercy; poison deaths count for the toad", async () => {
+  it("falling 20 times to a Green Slime unlocks Green Slime's Mercy; poison deaths count for the toad", async () => {
     const { store, p } = await newPlayer();
     const t = Date.now();
     await game.liveEnter(store, p.id, "mirewood_fields", t - 3_000_000);
-    for (let i = 0; i < 49; i++) await game.liveReport(store, p.id, blank("mirewood_fields", { type: "death", monsterId: "green_slime", hp: 0 }), seeded(), t - 2_000_000 + i * 1000);
+    for (let i = 0; i < 19; i++) await game.liveReport(store, p.id, blank("mirewood_fields", { type: "death", monsterId: "green_slime", hp: 0 }), seeded(), t - 2_000_000 + i * 1000);
     expect(await owned(store, p.id, "green_slimes_mercy")).toBe(false);
     await game.liveReport(store, p.id, blank("mirewood_fields", { type: "death", monsterId: "green_slime", hp: 0 }), seeded(), t - 1_900_000);
     expect(await owned(store, p.id, "green_slimes_mercy")).toBe(true);
