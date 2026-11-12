@@ -619,6 +619,13 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       }
       continue;
     }
+    // Horn Rabbit Weapons: hits on the monsters it names hit harder
+    let foeBonus = 1;
+    if (h.foe) {
+      if (!ps.foe_bane?.monsters.includes(h.foe)) throw new GameError("That skill isn't equipped");
+      foeBonus = ps.foe_bane.mult;
+    }
+    const hitBonus = anyHitBonus * foeBonus;
     if (h.skillId === "vengeance_vault") {
       if (!ps.vault) throw new GameError("That skill isn't equipped");
       if (!h.miss) waves.set(h.wave ?? 0, Math.max(waves.get(h.wave ?? 0) ?? 0, h.dmg));
@@ -629,7 +636,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     } else if (h.skillId === "phantom_legion") {
       // shadow clones swing like you, at a share of your damage
       if (!ps.phantom_legion) throw new GameError("That skill isn't equipped");
-      const cap = Math.ceil(maxHit(specFor(), atk) * ps.phantom_legion.pct * anyHitBonus) + 1;
+      const cap = Math.ceil(maxHit(specFor(), atk) * ps.phantom_legion.pct * hitBonus) + 1;
       if (!h.miss && h.dmg > cap) throw new GameError("A hit was bigger than possible");
       cloneHits++;
     } else if (h.skillId === "spell_thief") {
@@ -642,7 +649,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       if (!ps.sky_lance) throw new GameError("That skill isn't equipped");
       if (!h.miss) {
         trackStreak(h);
-        if (h.dmg > Math.ceil(maxHit(specFor(), atk) * anyHitBonus) + 1) throw new GameError("A hit was bigger than possible");
+        if (h.dmg > Math.ceil(maxHit(specFor(), atk) * hitBonus) + 1) throw new GameError("A hit was bigger than possible");
       }
       skyHits++;
     } else if (h.chain) {
@@ -651,12 +658,12 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
       const spec = specFor(h.skillId);
       if (!h.miss) {
         trackStreak(h);
-        if (h.dmg > Math.ceil(maxHit(spec, atk) * anyHitBonus) + 1) throw new GameError("A hit was bigger than possible");
+        if (h.dmg > Math.ceil(maxHit(spec, atk) * hitBonus) + 1) throw new GameError("A hit was bigger than possible");
       }
       chainHits++;
     } else if (h.skillId && procs[h.skillId] !== undefined) {
       if (!procs[h.skillId]) throw new GameError("That skill isn't equipped");
-      const cap = Math.ceil(maxHit(specFor(h.skillId), atk)) + 1;
+      const cap = Math.ceil(maxHit(specFor(h.skillId), atk) * foeBonus) + 1;
       if (!h.miss && h.dmg > cap) throw new GameError("A hit was bigger than possible");
       if (h.skillId === "iron_riposte") riposteHits++;
       else stormHits++;
@@ -671,7 +678,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
         executes++;
         if (h.dmg > plainMaxHp) throw new GameError("A hit was bigger than possible");
       } else {
-        let boost = (ps.hundred_cuts ? streakMult(st, ps.hundred_cuts.per_hit) : 1) * anyHitBonus;
+        let boost = (ps.hundred_cuts ? streakMult(st, ps.hundred_cuts.per_hit) : 1) * hitBonus;
         if (h.stealth) {
           const sf = ps.silent_finish;
           if (!sf) throw new GameError("That skill isn't equipped");
@@ -1135,6 +1142,12 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     player.currentMp = d.maxMp;
     player.gold = Math.floor(player.gold * 0.9);
     inc(deltas, "deaths");
+    // who finished you (the newbie skills count these)
+    const killer = report.monsterId && MONSTERS[report.monsterId] ? report.monsterId : null;
+    if (killer) {
+      inc(deltas, `killed_by_${killer}`);
+      if (report.deathBy === "poison" && report.taken.poison > 0) inc(deltas, `poison_deaths_${killer}`);
+    }
     deltas.poisoned_since_death = { op: "set", value: 0 };
     if (zone.kind === "dungeon") deltas[runKey(zone.id, "active")] = { op: "set", value: 0 };
     log.push("You wake up in Thornvale, a little poorer.");

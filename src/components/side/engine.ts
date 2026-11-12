@@ -164,6 +164,7 @@ export interface Player {
   dead: boolean;
   diedAt: number;
   reviveUsed: boolean;
+  poisonFrom: string; // who poisoned you last (a monster id, or "" for the swamp or food)
   invisibleUntil: number;
   skillReady: Record<string, number>;
   globalReady: number;
@@ -509,6 +510,7 @@ export class Engine {
       dead: false,
       diedAt: 0,
       reviveUsed: false,
+      poisonFrom: "",
       invisibleUntil: 0,
       skillReady: {},
       globalReady: 0,
@@ -1303,8 +1305,12 @@ export class Engine {
     if (!r.miss && counter) dmg = Math.round(dmg * PARRY_COUNTER_MULT);
     // Spellblade: sword hits carry extra magic damage
     if (!r.miss && ps.spellblade && this.weapon === "sword" && !skillId) dmg += Math.ceil(this.combat.stats.INT * ps.spellblade.int_mult);
+    // Horn Rabbit Weapons: extra damage on the monsters it names
+    const bane = ps.foe_bane && !execute && ps.foe_bane.monsters.includes(m.id) ? ps.foe_bane.mult : 0;
+    if (!r.miss && bane) dmg = Math.floor(dmg * bane);
     if (execute) dmg = Math.max(1, Math.ceil(m.hp));
     const hit: ReportHit = { dmg: r.miss ? 0 : dmg, crit: r.crit, miss: r.miss };
+    if (!r.miss && bane) hit.foe = m.id;
     if (skillId) hit.skillId = skillId;
     if (counter && !r.miss && !execute) hit.counter = true;
     if (!r.miss) {
@@ -1884,7 +1890,10 @@ export class Engine {
       if ((m.state as Monster["state"]) === "dead") continue; // poison may have just finished it
       if (m.fight && p.inSwamp) m.fight.inSwamp = true;
       const frozen = !!(m.statuses.stun || m.statuses.freeze);
-      const speed = ai.speed * (m.statuses.slow ? 0.5 : 1);
+      // Wolf's Scars: monsters near you move slower
+      const scars = this.combat.passive.scar_aura;
+      const scarred = scars && !p.dead && Math.hypot(p.x - m.x, p.y - m.y) <= scars.radius ? 1 - scars.slow : 1;
+      const speed = ai.speed * (m.statuses.slow ? 0.5 : 1) * scarred;
       const dx = p.x - m.x;
       const dy = p.y - m.y;
       const playerHidden = p.dead || now < p.invisibleUntil;
@@ -2029,6 +2038,12 @@ export class Engine {
     const acc = this.acc;
     acc.dirty = true;
     const look = MONSTER_LOOKS[m.id];
+    // Green Slime's Mercy: its blows just bounce off your slime coat
+    if (this.combat.passive.slime_mercy?.monsters.includes(m.id)) {
+      p.invulnUntil = this.now + HURT_INVULN_MS;
+      this.text(p.x, p.y - PLAYER_H - 10, "BOING!", "#7be08a", 24);
+      return;
+    }
     // PARRY: block pressed just before the blow
     const isBoss = !!MONSTERS[m.id].isBoss;
     const es = MONSTERS[m.id].stats;
@@ -2160,6 +2175,7 @@ export class Engine {
       }
     }
     if (atk.status && this.addPlayerStatus(atk.status)) {
+      if (atk.status.type === "poison") p.poisonFrom = m.id;
       const t = this.tameOf(m);
       if (atk.status.type === "poison" && atk.name === "Venom Spit" && p.inSwamp) t.swampVenom = true;
       if (atk.status.type === "silence") t.silencedAt = p.statuses.silence?.until ?? 0;
@@ -2169,7 +2185,7 @@ export class Engine {
     void look;
   }
 
-  private hurtPlayer(dmg: number, source: "enemy" | "hazard" | "poison" | "burn", m?: Monster) {
+  private hurtPlayer(dmg: number, source: "enemy" | "hazard" | "poison" | "burn", m?: Monster, poisonTick = false) {
     const p = this.player;
     if (dmg <= 0 || p.dead) return;
     this.acc.taken[source] += dmg;
@@ -2196,7 +2212,7 @@ export class Engine {
       this.text(p.x, p.y - PLAYER_H - 40, "You refuse to fall!", "#ffd34d", 20);
     }
     this.acc.minHpPct = Math.min(this.acc.minHpPct, Math.max(0, p.hp) / p.maxHp);
-    if (p.hp <= 0) this.die(m);
+    if (p.hp <= 0) this.die(m, poisonTick);
   }
 
   /** Iron Momentum: mid-charge, you can't be stunned or knocked back. */
@@ -2227,7 +2243,7 @@ export class Engine {
     for (const [type, st] of Object.entries(p.statuses) as [StatusType, Status][]) {
       if (now >= st.nextTick) {
         st.nextTick += TICK_MS;
-        if (type === "poison") this.hurtPlayer(Math.max(1, Math.round(p.maxHp * 0.05 * this.combat.poisonMult)), "poison");
+        if (type === "poison") this.hurtPlayer(Math.max(1, Math.round(p.maxHp * 0.05 * this.combat.poisonMult)), "poison", undefined, true);
         if (type === "burn") this.hurtPlayer(Math.max(1, Math.round(4 + p.maxHp * 0.03)), "burn");
         if (type === "paralysis" && this.rng() < 0.5) p.pinnedUntil = now + 800;
         if (p.dead) return;
@@ -2242,7 +2258,7 @@ export class Engine {
         p.swampNext = now + TICK_MS;
         this.acc.swampTicks++;
         this.hurtPlayer(hazard.damage, "hazard");
-        if (!p.dead && hazard.status) this.addPlayerStatus(hazard.status);
+        if (!p.dead && hazard.status && this.addPlayerStatus(hazard.status) && hazard.status.type === "poison") p.poisonFrom = "";
       }
     } else p.swampNext = 0;
     // MP regen from skills
@@ -2257,7 +2273,7 @@ export class Engine {
     }
   }
 
-  private die(m?: Monster) {
+  private die(m?: Monster, byPoison = false) {
     const p = this.player;
     p.dead = true;
     p.diedAt = this.now;
@@ -2272,7 +2288,9 @@ export class Engine {
       x.aggro = false;
       if (x.state !== "dead") x.state = "patrol";
     }
-    this.emit("death", { monsterId: m?.id });
+    // poison that finishes you counts against whoever poisoned you
+    if (byPoison) this.emit("death", { monsterId: p.poisonFrom || undefined, deathBy: "poison" });
+    else this.emit("death", { monsterId: m?.id });
   }
 
   // ---------- reports ----------

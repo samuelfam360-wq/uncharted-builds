@@ -546,4 +546,43 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
     },
     effect: { stat_multiplier: { HP: 1.1, MP: 1.1, STR: 1.1, VIT: 1.1, AGI: 1.1, DEX: 1.1, INT: 1.1 } },
   }),
+
+  // ---------- For those who keep falling (Samuel's newbie skills) ----------
+  def({
+    id: "green_slimes_mercy",
+    name: "Green Slime's Mercy",
+    description: "A coat of green slime covers your whole body. Slimes' blows bounce right off: you take no damage from any slime.",
+    kind: "passive",
+    conditions: { counter: "killed_by_green_slime", op: ">=", value: 50 },
+    effect: { passive: { slime_mercy: { monsters: ["green_slime"] } } },
+  }),
+  def({
+    id: "horn_rabbit_weapons",
+    name: "Horn Rabbit Weapons",
+    description: "Your weapons deal 50% more damage to Horned Rabbits.",
+    kind: "passive",
+    conditions: {
+      all: [
+        { counter: "killed_by_horned_rabbit", op: ">=", value: 50 },
+        { counter: "defeated_horned_rabbit", op: ">=", value: 50 },
+      ],
+    },
+    effect: { passive: { foe_bane: { monsters: ["horned_rabbit"], mult: 1.5 } } },
+  }),
+  def({
+    id: "poison_toad_armour",
+    name: "Poison Toad Armour",
+    description: "+10% resistance to poison.",
+    kind: "passive",
+    conditions: { counter: "poison_deaths_bog_toad", op: ">=", value: 50 },
+    effect: { status_resist: { poison: 0.1 } },
+  }),
+  def({
+    id: "wolfs_scars",
+    name: "Wolf's Scars",
+    description: "An aura of old scars: monsters inside it move 30% slower.",
+    kind: "passive",
+    conditions: { counter: "killed_by_thorn_wolf", op: ">=", value: 50 },
+    effect: { passive: { scar_aura: { radius: 200, slow: 0.3 } } },
+  }),
 ];

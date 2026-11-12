@@ -245,6 +245,12 @@ export interface PassiveEffect {
   shared_glory?: { stat_share: number; exp_mult: number };
   /** Beast Tongue: every enemy's next attack is shown this long before it starts. */
   beast_tongue?: { early_ms: number };
+  /** Green Slime's Mercy: these monsters' blows bounce off you. */
+  slime_mercy?: { monsters: string[] };
+  /** Horn Rabbit Weapons: your hits on these monsters deal this much more. */
+  foe_bane?: { monsters: string[]; mult: number };
+  /** Wolf's Scars: monsters within this distance of you move slower. */
+  scar_aura?: { radius: number; slow: number };
 }
 
 export interface SkillEffect {

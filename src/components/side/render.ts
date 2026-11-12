@@ -546,6 +546,19 @@ function drawPlayer(ctx: Ctx, e: Engine, info: DrawInfo) {
     ctx.ellipse(0, 0, 20, 5, 0, 0, Math.PI * 2);
     ctx.fill();
   }
+  // Wolf's Scars: a faint ring shows how far the aura reaches
+  const scars = e.combat.passive.scar_aura;
+  if (scars && !p.dead) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(190,60,60,0.35)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 8]);
+    ctx.lineDashOffset = -now / 40;
+    ctx.beginPath();
+    ctx.ellipse(0, -PLAYER_H / 2, scars.radius, scars.radius * 0.45, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
   if (now < p.invulnUntil && Math.floor(now / 90) % 2 === 0) ctx.globalAlpha = 0.45;
   if (now < p.invisibleUntil) ctx.globalAlpha = 0.35;
   if (now < p.counterUntil) {
@@ -561,6 +574,25 @@ function drawPlayer(ctx: Ctx, e: Engine, info: DrawInfo) {
   ctx.scale(p.facing, 1);
   drawHero(ctx, info.look, { pose, t: p.onLadder ? p.walkT : pose === "walk" ? p.walkT : now, progress, weapon: e.weapon });
   ctx.restore();
+  // Green Slime's Mercy: a wobbly coat of green slime over the whole body
+  if (e.combat.passive.slime_mercy && !p.dead) {
+    ctx.save();
+    const wob = Math.sin(now / 160) * 2;
+    ctx.globalAlpha *= 0.32;
+    ctx.fillStyle = "#5fd36a";
+    ctx.beginPath();
+    ctx.ellipse(0, -PLAYER_H / 2 + 2, 24 + wob, PLAYER_H / 2 + 6 - wob, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha *= 1.8;
+    ctx.strokeStyle = "#2f9c45";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.beginPath();
+    ctx.ellipse(-9, -PLAYER_H + 14, 4, 7, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
   ctx.globalAlpha = 1;
   // status marks above the head
   const sts = Object.keys(p.statuses);
