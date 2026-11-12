@@ -143,12 +143,19 @@ export class SupabaseStore implements GameStore {
     return Object.fromEntries(Object.entries(out ?? {}).map(([k, v]) => [k, Number(v)]));
   }
 
+  // Skill definitions change only from the admin page: keep them for a little while
+  // instead of asking the database on every request.
+  private defsCache: { at: number; defs: SkillDefinition[] } | null = null;
   async listSkillDefs() {
+    if (this.defsCache && Date.now() - this.defsCache.at < 30_000) return structuredClone(this.defsCache.defs);
     const rows: any[] = many(await this.db.from("skill_definitions").select("*").order("id"));
-    return rows.map(toDef);
+    const defs = rows.map(toDef);
+    this.defsCache = { at: Date.now(), defs };
+    return structuredClone(defs);
   }
 
   async saveSkillDef(d: SkillDefinition) {
+    this.defsCache = null;
     check(
       await this.db.from("skill_definitions").upsert({
         id: d.id,

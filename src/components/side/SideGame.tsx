@@ -36,7 +36,7 @@ const RESPAWN_DELAY_MS = 700;
 
 type EnterResult = { run: { room: number; totalRooms: number; firstAttempt: boolean } | null; unlocks: UnlockNotice[] };
 /** What waits to reach the server, in order: reports, and "I walked onto a new map" between them. */
-type QueueItem = { r: LiveReport } | { enter: string; done: (res: EnterResult | null, err?: Error) => void };
+type QueueItem = { r: LiveReport } | { call: { path: string; body: unknown }; done: (res: unknown, err?: Error) => void };
 
 interface Toast {
   id: number;
@@ -186,10 +186,10 @@ export default function SideGame({
     sending.current = true;
     while (queue.current.length) {
       const item = queue.current[0];
-      if ("enter" in item) {
-        // a new map: the server learns of it in order, the player already walked on
+      if ("call" in item) {
+        // a new map, a rest at the inn: the server learns of it in order, the player already moved on
         try {
-          const res = await api<EnterResult>("/api/live", { type: "enter", zoneId: item.enter });
+          const res = await api<unknown>(item.call.path, item.call.body);
           queue.current.shift();
           item.done(res);
         } catch (e) {
@@ -247,16 +247,24 @@ export default function SideGame({
     [pump],
   );
 
-  /** Tell the server about a new map, after everything sent before it. */
-  const enterZone = useCallback(
-    (zoneId: string) =>
-      new Promise<EnterResult>((resolve, reject) => {
+  /** Send a call to the server after everything sent before it, without waiting for it. */
+  const queueCall = useCallback(
+    <T,>(path: string, body: unknown) =>
+      new Promise<T>((resolve, reject) => {
         engineRef.current?.flush();
-        queue.current.push({ enter: zoneId, done: (res, err) => (res ? resolve(res) : reject(err)) });
+        queue.current.push({ call: { path, body }, done: (res, err) => (err ? reject(err) : resolve(res as T)) });
         void pump();
       }),
     [pump],
   );
+  /** Tell the server about a new map. */
+  const enterZone = useCallback((zoneId: string) => queueCall<EnterResult>("/api/live", { type: "enter", zoneId }), [queueCall]);
+
+  /** Send what's waiting, in the background (opening the menu or shop doesn't wait for it). */
+  const sendNow = useCallback(() => {
+    engineRef.current?.flush();
+    void pump();
+  }, [pump]);
 
   /** Send everything not yet sent and wait until the server has it. */
   const flush = useCallback(async () => {
@@ -283,11 +291,8 @@ export default function SideGame({
         let spot = loadSpot(st.player.id);
         if (st.player.currentHp <= 0) spot = { ...SIDE_INN };
         const zone = SIDE_MAPS[spot.map].zoneId;
-        try {
-          await api("/api/live", { type: "enter", zoneId: zone });
-        } catch (e) {
-          onError((e as Error).message);
-        }
+        // the game starts at once; the server hears where you are first, in order
+        queueCall("/api/live", { type: "enter", zoneId: zone }).catch((err: Error) => onError(err.message));
         const e = new Engine({
           mapId: spot.map,
           x: spot.x,
@@ -396,20 +401,21 @@ export default function SideGame({
     [enterZone, onUnlocks, refresh, savePos, say],
   );
 
-  const rest = useCallback(async () => {
-    setBusy(true);
-    try {
-      await flush();
-      const r = await api<{ log?: string[] }>("/api/town", { action: "rest" });
-      adoptNext.current = true;
-      await refresh();
-      say({ lines: r.log?.length ? r.log : ["You feel rested."] });
-    } catch (err) {
-      say({ lines: [(err as Error).message] });
-    } finally {
-      setBusy(false);
+  const rest = useCallback(() => {
+    // rested at once; the server does the same in the background, in order
+    const e = engineRef.current;
+    if (e) {
+      e.player.hp = e.player.maxHp;
+      e.player.mp = e.player.maxMp;
     }
-  }, [flush, refresh, say]);
+    say({ lines: ["You feel rested."] });
+    queueCall("/api/town", { action: "rest" })
+      .then(() => {
+        adoptNext.current = true;
+        void refresh();
+      })
+      .catch((err: Error) => say({ lines: [err.message] }));
+  }, [queueCall, refresh, say]);
 
   const enterPortal = useCallback(
     (p: PortalDef) => {
@@ -457,9 +463,7 @@ export default function SideGame({
       if (n.kind === "door") {
         if (n.building.kind === "house") return say({ lines: ["The door is locked."] });
         if (n.building.kind === "shop") {
-          setBusy(true);
-          await flush();
-          setBusy(false);
+          sendNow();
           return onShop();
         }
         return say({
@@ -482,15 +486,13 @@ export default function SideGame({
         setBusy(false);
       }
     },
-    [flush, onShop, rest, say, enterPortal],
+    [sendNow, onShop, rest, say, enterPortal],
   );
 
-  const openMenu = useCallback(async () => {
-    setBusy(true);
-    await flush();
-    setBusy(false);
+  const openMenu = useCallback(() => {
+    sendNow();
     onMenu();
-  }, [flush, onMenu]);
+  }, [sendNow, onMenu]);
 
   // ---------- keyboard ----------
 
