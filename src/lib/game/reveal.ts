@@ -1,4 +1,4 @@
-// The 80% reveal: once a player is 80% of the way to a hidden skill, the game
+// The 50% reveal: once a player is halfway to a hidden skill, the game
 // tells them what's left. The skill's name stays hidden until it unlocks.
 
 import { COUNTER_KEYS } from "./counters";
@@ -6,10 +6,10 @@ import { MONSTERS } from "./data/world";
 import { compare, statSpread, type RuleContext } from "./rules";
 import type { Condition, PlayerSkill, SkillDefinition, WeaponType } from "./types";
 
-export const REVEAL_AT = 0.8;
+export const REVEAL_AT = 0.5;
 
 export interface Hint {
-  pct: number; // 0.8 .. 1
+  pct: number; // REVEAL_AT .. 1
   left: string[]; // what's still missing, in plain words
 }
 
@@ -223,7 +223,7 @@ function battleText(key: string, op: string, value: number | string | boolean): 
 
 /**
  * What a skill asks of you, in plain words: shown when it unlocks, so you can
- * tell what you did to earn it. Counter goals read like the 80% hints.
+ * tell what you did to earn it. Counter goals read like the halfway hints.
  */
 export function describeCondition(cond: Condition, skillName: (id: string) => string = (id) => id): string[] {
   if ("all" in cond) return cond.all.flatMap((c) => describeCondition(c, skillName));

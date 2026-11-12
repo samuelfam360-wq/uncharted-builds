@@ -1570,7 +1570,7 @@ export class Engine {
       if (m.hp / m.maxHp >= TAME_HP_SHARE) continue;
       const t = this.tameOf(m);
       const pr = this.tameProgress(m);
-      const top = m.y - MONSTER_LOOKS[m.id].body.h - 30;
+      const top = m.y - MONSTER_LOOKS[m.id].body.h - 70;
       if (pr >= 1) {
         if (!t.hinted) {
           t.hinted = true;
@@ -1807,7 +1807,7 @@ export class Engine {
     }
     if (cur) cur.until = Math.max(cur.until, until);
     else m.statuses[type] = { until, nextTick: this.now + TICK_MS };
-    this.text(m.x, m.y - MONSTER_LOOKS[m.id].body.h - 30, type.toUpperCase(), "#c792ff", 16);
+    this.text(m.x, m.y - MONSTER_LOOKS[m.id].body.h - 70, type.toUpperCase(), "#c792ff", 16);
   }
 
   private indirectDamage(m: Monster, dmg: number, label: string, color: string) {
@@ -1994,7 +1994,7 @@ export class Engine {
         const tongue = this.combat.passive.beast_tongue;
         if (tongue && !m.foreseen && !p.dead && now >= m.nextAttackAt - tongue.early_ms) {
           m.foreseen = this.foresee(m);
-          if (m.foreseen) this.text(m.x, m.y - look.body.h - 30, `${m.foreseen.name} next!`, "#9fe8c0", 16);
+          if (m.foreseen) this.text(m.x, m.y - look.body.h - 70, `${m.foreseen.name} next!`, "#9fe8c0", 16);
         }
         if (now >= m.nextAttackAt && !p.dead) {
           let choice: EnemyAttack | null;
@@ -2009,7 +2009,7 @@ export class Engine {
             m.attack = choice;
             m.state = "windup";
             m.stateUntil = now + (sp ? sp.windup : ai.windup);
-            if (sp) this.text(m.x, m.y - look.body.h - 30, `${choice.name}!`, "#ffd34d", 18);
+            if (sp) this.text(m.x, m.y - look.body.h - 70, `${choice.name}!`, "#ffd34d", 18);
           }
         }
       } else {
