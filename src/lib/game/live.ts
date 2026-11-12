@@ -177,6 +177,7 @@ export interface ReportHit {
   chain?: boolean; // Chain Catastrophe: an explosion from an enemy your spell killed
   blood?: boolean; // Blood Sorcery: a skill cast with HP at 0 MP
   charge?: number; // a lance charge: how far you ran, as a share of a full run (0.5 to 1)
+  pet?: boolean; // your pet's bite, not your swing
 }
 
 /** Counts for the boss fight in progress, since the last report. */
@@ -193,9 +194,9 @@ export interface BossTally {
 }
 
 export interface LiveReport {
-  type: "kill" | "death" | "sync";
+  type: "kill" | "death" | "sync" | "tame";
   zoneId: string;
-  monsterId?: string; // kill: the monster that died; death: what killed you (optional)
+  monsterId?: string; // kill: the monster that died; tame: the one tamed; death: what killed you (optional)
   /** Every swing since the last report, on any monster. */
   hits: ReportHit[];
   /** Kill only: damage the dead monster took from your hits / from poison, burn and thorns. */
@@ -246,6 +247,8 @@ export interface LiveReport {
   zeroMpKill?: boolean; // kill: by a spell whose cast took your MP to exactly 0
   chargeKill?: boolean; // kill: by a lance charge from full distance
   jumpKill?: boolean; // kill: by a lance attack made in the air
+  petToTarget?: number; // kill / tame: damage your pet did to that monster
+  petKill?: boolean; // kill: your pet landed the killing blow
 }
 
 const STATUS_SET = new Set<string>(["poison", "paralysis", "burn", "freeze", "silence", "slow", "stun"]);
@@ -254,7 +257,7 @@ const num = (v: unknown, max = 1e9) => (typeof v === "number" && Number.isFinite
 /** Turn whatever came over the wire into a well-formed report (unknown fields dropped, numbers clamped). */
 export function cleanReport(body: unknown): LiveReport {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
-  const type = b.type === "kill" || b.type === "death" ? b.type : "sync";
+  const type = b.type === "kill" || b.type === "death" || b.type === "tame" ? b.type : "sync";
   const hits = Array.isArray(b.hits) ? b.hits.slice(0, 5000) : [];
   const taken = (b.taken && typeof b.taken === "object" ? b.taken : {}) as Record<string, unknown>;
   const boss = (b.boss && typeof b.boss === "object" ? b.boss : {}) as Record<string, unknown>;
@@ -290,6 +293,7 @@ export function cleanReport(body: unknown): LiveReport {
         chain: o.chain === true,
         blood: o.blood === true,
         charge: typeof o.charge === "number" && Number.isFinite(o.charge) ? Math.max(0, Math.min(1, o.charge)) : undefined,
+        pet: o.pet === true,
       };
     }),
     directToTarget: num(b.directToTarget),
@@ -348,5 +352,7 @@ export function cleanReport(body: unknown): LiveReport {
     zeroMpKill: b.zeroMpKill === true,
     chargeKill: b.chargeKill === true,
     jumpKill: b.jumpKill === true,
+    petToTarget: num(b.petToTarget),
+    petKill: b.petKill === true,
   };
 }

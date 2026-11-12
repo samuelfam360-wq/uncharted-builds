@@ -89,6 +89,7 @@ export function newCharacter(input: CreateCharacterInput, id: string, now = new 
     stats,
     lockedStats: [],
     dungeonAttempts: {},
+    pets: [],
     createdAt: now.toISOString(),
   };
   const d = derive(p, [], new Map(), null);

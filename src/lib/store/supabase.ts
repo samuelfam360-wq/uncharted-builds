@@ -64,6 +64,7 @@ export class SupabaseStore implements GameStore {
         current_hp: p.currentHp,
         current_mp: p.currentMp,
         dungeon_attempts: p.dungeonAttempts,
+        pets: p.pets,
       }),
     );
     check(await this.db.from("player_stats").insert(this.statsRow(p)));
@@ -102,6 +103,7 @@ export class SupabaseStore implements GameStore {
       currentHp: r.current_hp,
       currentMp: r.current_mp,
       dungeonAttempts: r.dungeon_attempts ?? {},
+      pets: Array.isArray(r.pets) ? r.pets : [],
       createdAt: r.created_at,
       stats: { HP: s.hp, MP: s.mp, STR: s.str, VIT: s.vit, AGI: s.agi, DEX: s.dex, INT: s.int },
       lockedStats: (s.locked_stats ?? []) as StatKey[],
@@ -122,6 +124,7 @@ export class SupabaseStore implements GameStore {
           current_hp: p.currentHp,
           current_mp: p.currentMp,
           dungeon_attempts: p.dungeonAttempts,
+          pets: p.pets,
           updated_at: new Date().toISOString(),
         })
         .eq("id", p.id),

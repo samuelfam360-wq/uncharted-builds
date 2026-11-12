@@ -5,6 +5,7 @@ import { api } from "@/lib/client";
 import { ITEMS, MONSTERS, ZONES } from "@/lib/game/data/world";
 import { SIDE_INN, SIDE_MAPS, SIDE_START, type PortalDef, type SideMapId } from "@/lib/game/data/sidemaps";
 import type { LiveReport } from "@/lib/game/live";
+import { attackerFromPetStats } from "@/lib/game/pets";
 import type { UnlockNotice, getState } from "@/lib/game/service";
 import type { InputBus } from "../world/input";
 import TextBox, { type Dialog } from "../world/TextBox";
@@ -26,6 +27,7 @@ interface LiveResult {
   run: { room: number; totalRooms: number; cleared: boolean } | null;
   log: string[];
   unlocks: UnlockNotice[];
+  tamed: { name: string } | null;
 }
 
 type QueueItem = { r: LiveReport };
@@ -37,6 +39,12 @@ interface Toast {
 }
 
 const SAVE_KEY = (id: string) => `ub-side-${id}`;
+
+/** The pet that's out, as the game screen needs it. */
+function petOf(st: GameState) {
+  const p = st.pets.find((x) => x.active);
+  return p ? { species: p.species, attacker: attackerFromPetStats(p.stats) } : null;
+}
 
 function loadSpot(playerId: string): { map: SideMapId; x: number; row: number } {
   try {
@@ -184,7 +192,7 @@ export default function SideGame({
         for (const line of res.log) toast(line, "#ffffff");
         if (res.levelUp) adoptNext.current = true;
         if (res.unlocks.length) onUnlocks(res.unlocks);
-        if (res.rewards || res.levelUp || res.unlocks.length || item.r.type === "death") await refresh();
+        if (res.rewards || res.levelUp || res.unlocks.length || res.tamed || item.r.type === "death") await refresh();
       } catch (e) {
         const status = (e as { status?: number }).status;
         if (status && status < 500) {
@@ -258,6 +266,7 @@ export default function SideGame({
           events: { report: (r) => send(r), toast: (t) => toast(t) },
           now: performance.now(),
         });
+        e.setPet(petOf(st));
         engineRef.current = e;
         setEngine(e);
         adoptNext.current = false;
@@ -288,8 +297,17 @@ export default function SideGame({
       adopt ? state.player.currentMp : undefined,
       quiet ? state.inventory : undefined,
     );
+    e.setPet(petOf(state));
     if (adopt) adoptNext.current = false;
   }, [state]);
+
+  // a new Tamer hasn't picked a first pet yet: say where to do it, once per visit
+  const petHint = useRef(false);
+  useEffect(() => {
+    if (!ready || petHint.current || !state.firstPetChoices?.length) return;
+    petHint.current = true;
+    say({ lines: ["As a Tamer, you start with a pet of your own.", "Open the menu to choose your first pet."] });
+  }, [ready, state.firstPetChoices, say]);
 
   useEffect(() => {
     if (!banner) return;
@@ -396,6 +414,7 @@ export default function SideGame({
 
   const interact = useCallback(
     async (n: Nearby) => {
+      if (n.kind === "tame") return void engineRef.current?.tame(n.monster);
       if (n.kind === "portal") return enterPortal(n.portal);
       if (n.kind === "sign") {
         const z = ZONES[n.sign.zoneId];
@@ -583,7 +602,7 @@ export default function SideGame({
   const e = engine;
   const p = e?.player;
   const near = e && !pausedRef.current ? e.nearby() : null;
-  const contextLabel = near ? { npc: "Talk", door: near.kind === "door" && near.building.kind === "house" ? "Knock" : "Enter", sign: "Read", portal: "Go" }[near.kind] : null;
+  const contextLabel = near ? { tame: "Tame", npc: "Talk", door: near.kind === "door" && near.building.kind === "house" ? "Knock" : "Enter", sign: "Read", portal: "Go" }[near.kind] : null;
   const skillButtons: (SkillButton | null)[] = [0, 1, 2, 3].map((i) => {
     const s = e?.skillSlots[i];
     const ss = e?.skillState(i);

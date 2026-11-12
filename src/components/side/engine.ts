@@ -41,6 +41,7 @@ import {
 import { damageFormula } from "@/lib/game/combat";
 import type { ActiveEffect, PassiveEffect, StatKey, StatusType, WeaponType } from "@/lib/game/types";
 import { MONSTER_LOOKS } from "./sprites";
+import { PET_ATTACK_MS, TAME_CONDITIONS, TAME_HP_SHARE } from "@/lib/game/pets";
 import { WEAPON_STYLE } from "./hero";
 
 // ---------- tuning (feel) ----------
@@ -204,7 +205,7 @@ export interface Monster {
   dashUntil: number;
   patrolUntil: number;
   patrolDir: 1 | -1 | 0;
-  fight: { start: number; direct: number; indirect: number; swings: number; inSwamp: boolean } | null;
+  fight: { start: number; direct: number; indirect: number; swings: number; inSwamp: boolean; pet: number } | null;
   struckAt: number; // when its last blow landed (for the strike pose)
   bleed: number; // Thousand Needles stacks
   bleedNext: number;
@@ -215,6 +216,35 @@ export interface Monster {
   lastZeroMp?: boolean; // that cast took your MP to exactly 0
   lastCharge?: number; // the last hit was a lance charge (share of a full run)
   lastAir?: boolean; // the last hit was a lance attack made in the air
+  lastPet?: boolean; // the last hit was your pet's
+  tame?: TameState; // progress toward its species' hidden taming condition, this fight
+}
+
+/** What happened in one monster's fight that its taming condition cares about. */
+export interface TameState {
+  ate: boolean; // you ate while it was next to you (Green Slime)
+  hornRun: number; // its Horn Charges dodged in a row (Horned Rabbit)
+  swampVenom: boolean; // its Venom Spit poisoned you in the swamp (Bog Toad)
+  crowd: boolean; // another monster joined the fight (Thorn Wolf)
+  items: boolean; // you ate during the fight (Thorn Wolf)
+  otherWeapon: boolean; // you held something other than the tamer wand (Thorn Wolf)
+  silencedAt: number; // its Screech silenced you, until this time (Mire Bat)
+  fistBlocks: number; // its Crushing Fists you blocked (Moss Golem)
+  hinted: boolean; // the "almost" hint was shown
+  told: boolean; // the "not yet" hint was shown
+}
+
+/** Your pet that's out: it follows you and bites what you fight. */
+export interface PetUnit {
+  species: string;
+  attacker: Attacker;
+  x: number;
+  y: number;
+  facing: 1 | -1;
+  nextAt: number;
+  walkT: number;
+  moving: boolean;
+  struckAt: number;
 }
 
 /** A Phantom Legion shadow clone. */
@@ -280,6 +310,7 @@ export interface Fx {
 }
 
 export type Nearby =
+  | { kind: "tame"; monster: Monster }
   | { kind: "npc"; npc: NpcDef }
   | { kind: "door"; building: SideMap["buildings"][number] }
   | { kind: "sign"; sign: SignDef }
@@ -401,6 +432,7 @@ export class Engine {
   private waveId = 1;
   private fight: FightState | null = null;
   clones: Clone[] = [];
+  pet: PetUnit | null = null;
   /** Silent Finish: stealth kills in a row. */
   stealthChain = 0;
   /** Seven Strikes: hits in the current combo. */
@@ -506,9 +538,18 @@ export class Engine {
     this.fx = [];
     this.pendingHits = [];
     this.clones = [];
+    if (this.pet) Object.assign(this.pet, { x: p.x - 50, y: p.y, nextAt: 0 });
     this.spawnTimers.clear();
     this.endFight(false);
     this.spawnAll();
+  }
+
+  /** Send a pet out beside you (null: none). */
+  setPet(info: { species: string; attacker: Attacker } | null) {
+    if (!info) return void (this.pet = null);
+    if (this.pet && this.pet.species === info.species) return void (this.pet.attacker = info.attacker);
+    const p = this.player;
+    this.pet = { species: info.species, attacker: info.attacker, x: p.x - p.facing * 50, y: p.y, facing: p.facing, nextAt: 0, walkT: 0, moving: false, struckAt: -1e9 };
   }
 
   private spawnAll() {
@@ -616,7 +657,7 @@ export class Engine {
     const presses = this.presses;
     this.presses = [];
     for (const p of presses) this.handlePress(p);
-    this.updateCombat();
+    this.updateCombat(Math.min(dtMs, 60));
     this.texts = this.texts.filter((t) => now - t.born < t.life);
     this.fx = this.fx.filter((f) => now - f.born < f.life);
   }
@@ -792,6 +833,8 @@ export class Engine {
     const p = this.player;
     if (p.dead || p.onLadder) return null;
     const onRow = (row: number) => Math.abs(p.y - row * TILE) < 6;
+    const t = this.tameTarget();
+    if (t) return { kind: "tame", monster: t };
     for (const portal of this.map.portals) {
       if (portal.kind === "dungeon_exit" && !this.run?.cleared) continue;
       if (Math.abs(p.x - portal.x * TILE) < 80 && onRow(portal.row)) return { kind: "portal", portal };
@@ -866,6 +909,12 @@ export class Engine {
     this.acc.dirty = true;
     if (this.bossFight) this.bossFight.items = true;
     if (this.fight) this.fight.items = true;
+    for (const m of this.monsters) {
+      if (m.state === "dead" || !m.fight) continue;
+      const t = this.tameOf(m);
+      t.items = true;
+      if (Math.abs(m.x - p.x) < 160 && Math.abs(m.y - p.y) < 120) t.ate = true;
+    }
     this.text(p.x, p.y - PLAYER_H - 10, `+${heal}`, "#5fd36a", 26);
     this.fxAdd("heal", p.x, p.y - PLAYER_H / 2, 40, 600, "#5fd36a");
   }
@@ -1094,7 +1143,7 @@ export class Engine {
 
   // ---------- combat ----------
 
-  private updateCombat() {
+  private updateCombat(dtMs: number) {
     const p = this.player;
     const now = this.now;
     // the normal attack: hold to keep swinging
@@ -1132,6 +1181,8 @@ export class Engine {
     this.updatePlayerStatus();
     this.updateRespawns();
     this.updateClones();
+    this.updatePet(dtMs);
+    this.tameHints();
     this.updateFight();
     if (this.run) this.spawnRoom();
   }
@@ -1373,6 +1424,137 @@ export class Engine {
     }
   }
 
+  // ---------- pets and taming ----------
+
+  /** Your pet follows you, and bites the nearest monster you're fighting. */
+  private updatePet(dtMs: number) {
+    const pet = this.pet;
+    const p = this.player;
+    if (!pet) return;
+    const target = p.dead
+      ? undefined
+      : this.monsters
+          .filter((m) => m.state !== "dead" && (m.fight || m.aggro) && Math.abs(m.x - p.x) < 450 && Math.abs(m.y - p.y) < 220)
+          .sort((a, b) => Math.abs(a.x - pet.x) - Math.abs(b.x - pet.x))[0];
+    const step = (420 * dtMs) / 1000;
+    let goalX: number;
+    let goalY: number;
+    if (target) {
+      const side = pet.x <= target.x ? -1 : 1;
+      goalX = target.x + side * (MONSTER_LOOKS[target.id].body.w / 2 + 22);
+      goalY = target.y;
+    } else {
+      goalX = p.x - p.facing * 56;
+      goalY = p.y;
+    }
+    const dx = goalX - pet.x;
+    pet.moving = Math.abs(dx) > 2;
+    if (pet.moving) {
+      pet.x += Math.sign(dx) * Math.min(Math.abs(dx), step);
+      pet.facing = dx > 0 ? 1 : -1;
+      pet.walkT += dtMs;
+    }
+    pet.y += (goalY - pet.y) * Math.min(1, dtMs / 120);
+    // too far behind (a ladder, a jump): catch up at once
+    if (Math.abs(pet.x - p.x) > 700 || Math.abs(pet.y - p.y) > 300) Object.assign(pet, { x: p.x - p.facing * 56, y: p.y });
+    if (!target || this.now < pet.nextAt) return;
+    if (Math.abs(target.x - pet.x) > MONSTER_LOOKS[target.id].body.w / 2 + 40 || Math.abs(target.y - pet.y) > 60) return;
+    pet.nextAt = this.now + PET_ATTACK_MS;
+    pet.struckAt = this.now;
+    pet.facing = target.x >= pet.x ? 1 : -1;
+    const spec = attackSpec("unarmed", pet.attacker);
+    const r = rollHit(this.rng, spec, pet.attacker, this.defenderOf(target), 1);
+    this.applyHit(target, { pet: true, dmg: r.miss ? 0 : r.dmg, crit: r.crit, miss: r.miss });
+  }
+
+  private tameOf(m: Monster): TameState {
+    if (!m.tame) m.tame = { ate: false, hornRun: 0, swampVenom: false, crowd: false, items: false, otherWeapon: false, silencedAt: 0, fistBlocks: 0, hinted: false, told: false };
+    return m.tame;
+  }
+
+  /** How far a monster's hidden taming condition is, from 0 to 1 (1 = met). */
+  tameProgress(m: Monster): number {
+    const t = this.tameOf(m);
+    switch (m.id) {
+      case "green_slime":
+        return t.ate ? 1 : 0;
+      case "horned_rabbit":
+        return Math.min(1, t.hornRun / TAME_CONDITIONS.horned_rabbit.goal);
+      case "bog_toad":
+        return t.swampVenom ? 1 : 0;
+      case "thorn_wolf":
+        return !t.crowd && !t.items && !t.otherWeapon ? 1 : 0;
+      case "mire_bat":
+        return this.now < t.silencedAt && this.player.statuses.silence ? 1 : 0;
+      case "moss_golem":
+        return Math.min(1, t.fistBlocks / TAME_CONDITIONS.moss_golem.goal);
+      default:
+        return 0;
+    }
+  }
+
+  /** A monster close by that you could tame right now (tamer wand in hand, weak enough, condition met). */
+  tameTarget(): Monster | null {
+    const p = this.player;
+    if (p.dead || this.weapon !== "tamer_wand") return null;
+    for (const m of this.monsters) {
+      if (m.state === "dead" || !m.fight || MONSTERS[m.id].isBoss || !TAME_CONDITIONS[m.id]) continue;
+      if (m.hp / m.maxHp >= TAME_HP_SHARE) continue;
+      if (Math.abs(m.x - p.x) > 260 || Math.abs(m.y - p.y) > 160) continue;
+      if (this.tameProgress(m) >= 1) return m;
+    }
+    return null;
+  }
+
+  /** Weak enough to tame but the condition isn't met: a nudge once per fight, and a hint when you're close. */
+  private tameHints() {
+    if (this.weapon !== "tamer_wand") return;
+    for (const m of this.monsters) {
+      if (m.state === "dead" || !m.fight || MONSTERS[m.id].isBoss || !TAME_CONDITIONS[m.id]) continue;
+      if (m.hp / m.maxHp >= TAME_HP_SHARE) continue;
+      const t = this.tameOf(m);
+      const pr = this.tameProgress(m);
+      const top = m.y - MONSTER_LOOKS[m.id].body.h - 30;
+      if (pr >= 1) {
+        if (!t.hinted) {
+          t.hinted = true;
+          this.text(m.x, top, "It looks at you... (Tame!)", "#9fe39f", 18);
+        }
+      } else if (pr >= 0.8 && !t.hinted) {
+        t.hinted = true;
+        this.text(m.x, top, `Almost... ${TAME_CONDITIONS[m.id].text}`, "#ffe08a", 16);
+      } else if (!t.told) {
+        t.told = true;
+        this.text(m.x, top, "It won't come with you... yet", "#c8c8d0", 16);
+      }
+    }
+  }
+
+  /** Tame a monster: it leaves the fight and joins you (the server adds the pet). */
+  tame(m: Monster) {
+    if (this.tameTarget() !== m) return false;
+    const f = m.fight!;
+    m.state = "dead";
+    m.diedAt = this.now;
+    m.hp = 0;
+    if (m.spawnIndex >= 0) this.spawnTimers.set(m.spawnIndex, this.now + RESPAWN_MS);
+    this.fxAdd("heal", m.x, m.y - MONSTER_LOOKS[m.id].body.h / 2, 50, 700, "#9fe39f");
+    this.text(m.x, m.y - MONSTER_LOOKS[m.id].body.h - 20, "TAMED!", "#9fe39f", 28);
+    if (this.fight) this.fight.kills++;
+    const t = this.tameOf(m);
+    this.emit("tame", {
+      monsterId: m.id,
+      directToTarget: f.direct,
+      indirectToTarget: f.indirect,
+      petToTarget: f.pet,
+      hitsOnTarget: f.swings,
+      fightMs: this.now - f.start,
+      inSwamp: f.inSwamp,
+      duel: m.id === "thorn_wolf" ? !t.crowd && !t.items && !t.otherWeapon : undefined,
+    });
+    return true;
+  }
+
   private ensureFight(): FightState {
     if (!this.fight)
       this.fight = {
@@ -1448,7 +1630,10 @@ export class Engine {
   private applyHit(m: Monster, hit: ReportHit, status?: AttackSpec["status"]) {
     const p = this.player;
     this.acc.hits.push(hit);
-    if (!hit.miss) m.lastSkill = hit.skillId;
+    if (!hit.miss) {
+      m.lastSkill = hit.pet ? undefined : hit.skillId;
+      m.lastPet = !!hit.pet;
+    }
     this.acc.dirty = true;
     this.engage(m);
     m.fight!.swings++;
@@ -1460,7 +1645,8 @@ export class Engine {
     const dmg = hit.dmg;
     const big = hit.crit || hit.counter || hit.execute || hit.ult;
     m.hp -= dmg;
-    m.fight!.direct += dmg;
+    if (hit.pet) m.fight!.pet += dmg;
+    else m.fight!.direct += dmg;
     m.flashUntil = this.now + 120;
     m.showHpUntil = this.now + 4000;
     this.text(m.x, top - 8, `${dmg}`, big ? "#ff4f6d" : "#ffb347", big ? 34 : 28, hit.crit ? "!" : "");
@@ -1491,7 +1677,9 @@ export class Engine {
   private engage(m: Monster) {
     m.provoked = true;
     m.aggro = true;
-    if (!m.fight) m.fight = { start: this.now, direct: 0, indirect: 0, swings: 0, inSwamp: this.player.inSwamp };
+    if (!m.fight) m.fight = { start: this.now, direct: 0, indirect: 0, swings: 0, inSwamp: this.player.inSwamp, pet: 0 };
+    if (this.foesOnYou() > 1) for (const x of this.monsters) if (x.fight && x.state !== "dead") this.tameOf(x).crowd = true;
+    if (this.weapon !== "tamer_wand") this.tameOf(m).otherWeapon = true;
     this.ensureFight();
     if (MONSTERS[m.id].isBoss) {
       if (!this.bossFight)
@@ -1575,7 +1763,7 @@ export class Engine {
     m.state = "dead";
     m.diedAt = this.now;
     m.hp = 0;
-    const f = m.fight ?? { start: this.now, direct: 0, indirect: 0, swings: 0, inSwamp: false };
+    const f = m.fight ?? { start: this.now, direct: 0, indirect: 0, swings: 0, inSwamp: false, pet: 0 };
     if (this.combat.passive.heal_on_win_pct && !p.dead) {
       const heal = this.healPlayer(Math.round(p.maxHp * this.combat.passive.heal_on_win_pct), "regen");
       if (heal > 0) this.text(p.x, p.y - PLAYER_H - 4, `+${heal}`, "#5fd36a", 24);
@@ -1597,6 +1785,8 @@ export class Engine {
       zeroMpKill: m.lastZeroMp || undefined,
       chargeKill: m.lastCharge !== undefined && m.lastCharge >= 1 ? true : undefined,
       jumpKill: m.lastAir || undefined,
+      petToTarget: f.pet,
+      petKill: m.lastPet || undefined,
       monsterId: m.id,
       directToTarget: f.direct,
       indirectToTarget: f.indirect,
@@ -1838,6 +2028,7 @@ export class Engine {
     if (p.blocking && this.now - p.blockStart <= PARRY_WINDOW_MS) {
       acc.parries++;
       acc.blocks++;
+      if (m.id === "moss_golem" && atk.name === "Crushing Fist") this.tameOf(m).fistBlocks++;
       this.parryChain++;
       if (this.combat.passive.blade_read) this.bladeReady = true;
       if (isBoss && this.bossFight) {
@@ -1874,6 +2065,10 @@ export class Engine {
     }
     const pAgi = p.statuses.slow ? Math.floor(this.combat.stats.AGI / 2) : this.combat.stats.AGI;
     const r = rollEnemyHit(this.rng, atk, { STR: es.STR, INT: es.INT, DEX: es.DEX }, { VIT: this.combat.stats.VIT, INT: this.combat.stats.INT, AGI: pAgi }, this.weapon, p.blocking);
+    if (m.id === "horned_rabbit" && atk.name === "Horn Charge") {
+      const t = this.tameOf(m);
+      t.hornRun = r.miss ? t.hornRun + 1 : 0;
+    }
     if (r.miss) {
       acc.dodged++;
       const f = this.ensureFight();
@@ -1909,7 +2104,10 @@ export class Engine {
     if (this.fight) this.fight.dodgeRun = 0;
     this.parryChain = 0;
     this.bladeReady = false;
-    if (p.blocking) acc.blocks++;
+    if (p.blocking) {
+      acc.blocks++;
+      if (m.id === "moss_golem" && atk.name === "Crushing Fist") this.tameOf(m).fistBlocks++;
+    }
     acc.blockedDamage += r.blocked;
     // Iron Sanctuary: blocking heals part of what your guard soaked
     const sanct = this.combat.passive.iron_sanctuary;
@@ -1954,7 +2152,11 @@ export class Engine {
         if (x.state !== "dead" && x.aggro && Math.abs(x.x - p.x) <= STORM_REACH && Math.abs(x.y - p.y) <= STORM_REACH) this.procHit(x, "eye_of_the_storm", storm);
       }
     }
-    if (atk.status) this.addPlayerStatus(atk.status);
+    if (atk.status && this.addPlayerStatus(atk.status)) {
+      const t = this.tameOf(m);
+      if (atk.status.type === "poison" && atk.name === "Venom Spit" && p.inSwamp) t.swampVenom = true;
+      if (atk.status.type === "silence") t.silencedAt = p.statuses.silence?.until ?? 0;
+    }
     const aura = this.combat.passive.poison_aura;
     if (aura && atk.element === "physical" && !atk.area && m.state !== "dead" && this.rng() < aura.chance) this.addMonsterStatus(m, "poison", aura.turns);
     void look;
@@ -1995,18 +2197,20 @@ export class Engine {
     return !!this.combat.passive.iron_momentum && this.player.onGround && this.player.runDist >= CHARGE_FULL * CHARGE_MIN_SHARE;
   }
 
-  private addPlayerStatus(spec: { type: StatusType; chance: number; turns: number }) {
+  /** Returns true when the status took hold. */
+  private addPlayerStatus(spec: { type: StatusType; chance: number; turns: number }): boolean {
     const p = this.player;
-    if (this.rng() >= spec.chance) return;
-    if (spec.type === "stun" && this.charging()) return void this.text(p.x, p.y - PLAYER_H - 34, "Unstoppable", "#ffb347", 16);
-    if (this.combat.immunities.includes(spec.type)) return void this.text(p.x, p.y - PLAYER_H - 34, `Immune to ${spec.type}`, "#bfe3ff", 16);
-    if (this.rng() < (this.combat.statusResist[spec.type] ?? 0)) return void this.text(p.x, p.y - PLAYER_H - 34, "Resisted", "#bfe3ff", 16);
+    if (this.rng() >= spec.chance) return false;
+    if (spec.type === "stun" && this.charging()) return void this.text(p.x, p.y - PLAYER_H - 34, "Unstoppable", "#ffb347", 16), false;
+    if (this.combat.immunities.includes(spec.type)) return void this.text(p.x, p.y - PLAYER_H - 34, `Immune to ${spec.type}`, "#bfe3ff", 16), false;
+    if (this.rng() < (this.combat.statusResist[spec.type] ?? 0)) return void this.text(p.x, p.y - PLAYER_H - 34, "Resisted", "#bfe3ff", 16), false;
     this.acc.statuses.push(spec.type);
     const until = this.now + spec.turns * TICK_MS;
     const cur = p.statuses[spec.type];
     if (cur) cur.until = Math.max(cur.until, until);
     else p.statuses[spec.type] = { until, nextTick: this.now + TICK_MS };
     this.text(p.x, p.y - PLAYER_H - 34, spec.type.toUpperCase(), "#c792ff", 18);
+    return true;
   }
 
   private updatePlayerStatus() {
