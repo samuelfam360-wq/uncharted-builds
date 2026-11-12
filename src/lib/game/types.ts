@@ -96,6 +96,10 @@ export interface Pet {
   kills: number; // killing blows the pet landed
   active: boolean; // out and fighting beside you (one at a time)
   tamedAt: string;
+  /** A bred pet: its own level 1 numbers and caps (from its parents), instead of its species'. */
+  base?: { HP: number; STR: number; VIT: number; AGI: number; DEX: number; INT: number };
+  caps?: { HP: number; STR: number; VIT: number; AGI: number; DEX: number; INT: number };
+  parents?: [string, string]; // the parents' species
 }
 
 export type Counters = Record<string, number>;
@@ -237,6 +241,10 @@ export interface PassiveEffect {
   iron_sanctuary?: { pct: number };
   /** Life Palm: unarmed hits heal you for this share of their damage. */
   life_palm?: { pct: number };
+  /** Shared Glory: your pet out adds this share of your stats to its own, and earns more EXP. */
+  shared_glory?: { stat_share: number; exp_mult: number };
+  /** Beast Tongue: every enemy's next attack is shown this long before it starts. */
+  beast_tongue?: { early_ms: number };
 }
 
 export interface SkillEffect {

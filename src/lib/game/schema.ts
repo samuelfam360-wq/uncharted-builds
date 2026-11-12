@@ -105,6 +105,8 @@ export const effectSchema = z
         spellblade: z.object({ int_mult: z.number().min(0) }).strict().optional(),
         iron_sanctuary: z.object({ pct: z.number().min(0).max(1) }).strict().optional(),
         life_palm: z.object({ pct: z.number().min(0).max(1) }).strict().optional(),
+        shared_glory: z.object({ stat_share: z.number().min(0).max(1), exp_mult: z.number().min(0) }).strict().optional(),
+        beast_tongue: z.object({ early_ms: z.number().min(0).max(5000) }).strict().optional(),
       })
       .strict()
       .optional(),

@@ -99,17 +99,31 @@ export function petCap(species: string, stat: PetStat): number {
   return Math.max(10, v * PET_CAP_MULT);
 }
 
-/** A pet's stats: its species' own numbers plus the points you placed. */
-export function petStats(p: Pet): Record<PetStat, number> {
-  const base = petBase(p.species);
+/** This pet's level 1 numbers: its own if it was bred, else its species'. */
+export const baseOf = (p: Pet): Record<PetStat, number> => p.base ?? petBase(p.species);
+/** The most this pet's stat can reach: its own cap if it was bred, else its species'. */
+export const capOf = (p: Pet, k: PetStat) => p.caps?.[k] ?? petCap(p.species, k);
+
+/** Your stats that Shared Glory lends to the pet that's out. */
+export interface Glory {
+  stats: Record<string, number>;
+  share: number;
+}
+
+/** A pet's stats: its own numbers plus the points you placed (plus Shared Glory's share of yours, past the cap). */
+export function petStats(p: Pet, glory?: Glory | null): Record<PetStat, number> {
+  const base = baseOf(p);
   const out = {} as Record<PetStat, number>;
-  for (const k of PET_STATS) out[k] = Math.min(petCap(p.species, k), (base[k] ?? 0) + (p.stats[k] ?? 0));
+  for (const k of PET_STATS) {
+    out[k] = Math.min(capOf(p, k), (base[k] ?? 0) + (p.stats[k] ?? 0));
+    if (glory && p.active) out[k] += Math.floor((glory.stats[k] ?? 0) * glory.share);
+  }
   return out;
 }
 
 /** How a pet fights: bare-handed, with STR, like the monster it is. */
-export function petAttacker(p: Pet): Attacker {
-  return attackerFromPetStats(petStats(p));
+export function petAttacker(p: Pet, glory?: Glory | null): Attacker {
+  return attackerFromPetStats(petStats(p, glory));
 }
 
 /** The same, from the stats the browser gets. */
@@ -142,8 +156,8 @@ export function addPetPoints(p: Pet, alloc: Partial<Record<string, number>>) {
     const n = Math.floor(Number(v));
     if (!Number.isFinite(n) || n < 0) throw new GameError("Points must be whole numbers");
     const stat = k as PetStat;
-    const base = petBase(p.species)[stat];
-    if (base + next[stat] + n > petCap(p.species, stat)) throw new GameError(`${stat} can't go past ${petCap(p.species, stat)} for a ${speciesName(p.species)}`);
+    const base = baseOf(p)[stat];
+    if (base + next[stat] + n > capOf(p, stat)) throw new GameError(`${stat} can't go past ${capOf(p, stat)} for this ${speciesName(p.species)}`);
     next[stat] += n;
     total += n;
   }
@@ -157,8 +171,8 @@ export function canChooseFirstPet(player: Player) {
   return CLASSES[player.classId]?.weapon === "tamer_wand" && player.pets.length === 0;
 }
 
-export function publicPet(p: Pet) {
-  const s = petStats(p);
+export function publicPet(p: Pet, glory?: Glory | null) {
+  const s = petStats(p, glory);
   return {
     id: p.id,
     species: p.species,
@@ -168,10 +182,46 @@ export function publicPet(p: Pet) {
     expToNext: p.level >= PET_LEVEL_CAP ? 0 : expToNext(p.level),
     freePoints: p.freePoints,
     stats: s,
-    caps: Object.fromEntries(PET_STATS.map((k) => [k, petCap(p.species, k)])) as Record<PetStat, number>,
+    caps: Object.fromEntries(PET_STATS.map((k) => [k, capOf(p, k)])) as Record<PetStat, number>,
+    parents: p.parents ? p.parents.map(speciesName) : null,
     petPoints: p.petPoints,
     kills: p.kills,
     active: p.active,
   };
 }
 
+
+// ---------- breeding ----------
+
+/** Both parents must be at least this level. */
+export const BREED_LEVEL = 50;
+/** Breeding (like hatching) needs this Taming mastery level. */
+export const BREED_TAMING_LEVEL = 2;
+/** A bred baby starts with this many points to place. */
+export const BREED_BONUS_POINTS = 10;
+
+/**
+ * Breed two pets. The parents stay. The baby is level 1, of the species you pick
+ * (one of the parents'), starts from the average of both parents' stats and can
+ * grow to the higher parent's cap in each stat.
+ */
+export function breed(a: Pet, b: Pet, species: string, id: string, now = new Date()): Pet {
+  if (a.id === b.id) throw new GameError("Pick two different pets");
+  if (a.level < BREED_LEVEL || b.level < BREED_LEVEL) throw new GameError(`Both pets must be level ${BREED_LEVEL} to breed`);
+  if (species !== a.species && species !== b.species) throw new GameError("The baby must be one of its parents' species");
+  const sa = petStats(a);
+  const sb = petStats(b);
+  const caps = {} as Record<PetStat, number>;
+  const base = {} as Record<PetStat, number>;
+  for (const k of PET_STATS) {
+    caps[k] = Math.max(capOf(a, k), capOf(b, k));
+    base[k] = Math.min(caps[k], Math.floor((sa[k] + sb[k]) / 2));
+  }
+  base.HP = Math.max(1, base.HP);
+  const baby = newPet(species, id, now);
+  baby.base = base;
+  baby.caps = caps;
+  baby.parents = [a.species, b.species];
+  baby.freePoints = BREED_BONUS_POINTS;
+  return baby;
+}

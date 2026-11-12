@@ -21,7 +21,7 @@ import { findUnlocks, type BattleSummary } from "./rules";
 import { CHARGE_MIN_SHARE, MAX_HITS_PER_SEC, PARRY_COUNTER_MULT, TICK_MS, ULT_EXP_BONUS, attackSpec, maxHit, streakMult, withDuelist, type AttackSpec, type LiveReport, type ReportHit } from "./live";
 import { MASTERIES, MASTERY_XP, WEAPON_MASTERY, masteryKey, masteryLevel, masteryRate, masteryViews } from "./masteries";
 import { describeCondition, revealHints } from "./reveal";
-import { BOSS_EGGS, BOSS_EGG_MS, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
+import { BREED_TAMING_LEVEL, BOSS_EGGS, BOSS_EGG_MS, breed, type Glory, EGG_SWAMP_MS, EGG_TAMING_LEVEL, FIRST_PET_CHOICES, PET_ATTACK_MS, eggGotKey, eggKey, eggSwampKey, PET_POINTS, TAMEABLE, TAME_HP_SHARE, activePet, addPetPoints, canChooseFirstPet, grantPetExp, newPet, petAttacker, publicPet, speciesName } from "./pets";
 import { WEAPON_TYPES, type ActiveEffect, type CounterDeltas, type GaugeSource, type Player, type PlayerSkill, type SkillDefinition, type Stats, type UniqueItem, type WeaponType } from "./types";
 import type { GameStore } from "../store/types";
 
@@ -167,7 +167,7 @@ export async function getState(store: GameStore, playerId: string) {
       }),
     inventory: inventory.map((i) => ({ ...i, name: ITEMS[i.itemId]?.name ?? i.itemId, description: ITEMS[i.itemId]?.description ?? "", edible: ITEMS[i.itemId]?.edible ?? false })),
     uniqueItem: unique,
-    pets: player.pets.map(publicPet),
+    pets: player.pets.map((p) => publicPet(p, gloryOf(d))),
     firstPetChoices: canChooseFirstPet(player) ? FIRST_PET_CHOICES.map((id) => ({ species: id, name: speciesName(id) })) : [],
     // boss eggs you carry: how to hatch one stays hidden until you're 80% of the way there
     eggs: Object.entries(BOSS_EGGS)
@@ -604,7 +604,8 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
   const waves = new Map<number, number>();
   const ultFired: { id: string; tier: 1 | 2 | 3; dmg: number }[] = [];
   const pet = activePet(player);
-  const petCap = pet ? maxHit(attackSpec("unarmed", petAttacker(pet)), petAttacker(pet)) + 1 : 0;
+  const petAtk = pet ? petAttacker(pet, gloryOf(d)) : null;
+  const petCap = petAtk ? maxHit(attackSpec("unarmed", petAtk), petAtk) + 1 : 0;
   let petSwings = 0;
   let petLanded = 0;
   for (const h of report.hits) {
@@ -1035,7 +1036,7 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
         out.kills++;
         inc(deltas, "pet_kills");
       }
-      if (grantPetExp(out, exp) > 0) log.push(`Your ${speciesName(out.species)} reached level ${out.level}!`);
+      if (grantPetExp(out, Math.round(exp * (ps.shared_glory?.exp_mult ?? 1))) > 0) log.push(`Your ${speciesName(out.species)} reached level ${out.level}!`);
     }
     for (const id of drops) inv.set(id, (inv.get(id) ?? 0) + 1);
     // a boss beaten fast enough (timed from when its room opened) leaves its egg, once per player
@@ -1129,12 +1130,14 @@ export async function liveReport(store: GameStore, playerId: string, report: Liv
     tamed = publicPet(pet);
     resetFx = true;
   } else if (report.type === "death") {
-    player.currentHp = 0;
+    // you wake at the inn at once, fully healed, a little poorer
+    player.currentHp = d.maxHp;
+    player.currentMp = d.maxMp;
     player.gold = Math.floor(player.gold * 0.9);
     inc(deltas, "deaths");
     deltas.poisoned_since_death = { op: "set", value: 0 };
     if (zone.kind === "dungeon") deltas[runKey(zone.id, "active")] = { op: "set", value: 0 };
-    log.push("You wake up in Thornvale, a little poorer. Rest at the inn to recover.");
+    log.push("You wake up in Thornvale, a little poorer.");
     const m = report.monsterId ? MONSTERS[report.monsterId] : undefined;
     summary = {
       result: "loss",
@@ -1317,6 +1320,12 @@ function growMastery(
 
 // ---------- pets ----------
 
+/** Shared Glory: the share of your stats the pet that's out borrows. */
+function gloryOf(d: ReturnType<typeof derive>): Glory | null {
+  const g = d.passive.shared_glory;
+  return g ? { stats: d.stats, share: g.stat_share } : null;
+}
+
 async function petPlayer(store: GameStore, playerId: string) {
   if (await store.getActiveBattle(playerId)) throw new GameError("You're in a battle");
   const player = await store.getPlayer(playerId);
@@ -1353,4 +1362,19 @@ export async function petAddPoints(store: GameStore, playerId: string, petId: st
   addPetPoints(pet, alloc ?? {});
   await store.savePlayer(player);
   return { pet: publicPet(pet) };
+}
+
+/** Breed two of your level 50 pets: the baby (of the species you pick, one of the parents') joins you. */
+export async function breedPets(store: GameStore, playerId: string, aId: string, bId: string, species: string) {
+  const player = await petPlayer(store, playerId);
+  const a = player.pets.find((p) => p.id === aId);
+  const b = player.pets.find((p) => p.id === bId);
+  if (!a || !b) throw new GameError("That pet isn't yours");
+  const counters = await store.getCounters(playerId);
+  if (masteryLevel(counters[masteryKey("taming")] ?? 0) < BREED_TAMING_LEVEL) throw new GameError(`Breeding needs Taming mastery level ${BREED_TAMING_LEVEL}`);
+  const baby = breed(a, b, species, randomUUID());
+  player.pets = [...player.pets, baby];
+  await store.savePlayer(player);
+  await store.applyCounters(playerId, { pets_bred: { op: "inc", value: 1 } });
+  return { pet: publicPet(baby), log: [`A baby ${speciesName(species)} was born! It has ${baby.freePoints} points to place.`] };
 }

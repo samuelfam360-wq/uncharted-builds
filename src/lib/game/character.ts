@@ -227,6 +227,8 @@ export function derive(
         "spellblade",
         "iron_sanctuary",
         "life_palm",
+        "shared_glory",
+        "beast_tongue",
       ] as const) {
         if (ps[key] !== undefined) (passive as Record<string, unknown>)[key] = ps[key];
       }
