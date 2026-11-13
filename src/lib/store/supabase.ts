@@ -100,6 +100,8 @@ export class SupabaseStore implements GameStore {
       gold: r.gold,
       weapon: r.weapon as WeaponType,
       ownedWeapons: r.owned_weapons,
+      hornWeapon: (r.horn_weapon as WeaponType | null) ?? null,
+      hornEquipped: r.horn_equipped === true,
       currentHp: r.current_hp,
       currentMp: r.current_mp,
       dungeonAttempts: r.dungeon_attempts ?? {},
@@ -125,6 +127,8 @@ export class SupabaseStore implements GameStore {
           current_mp: p.currentMp,
           dungeon_attempts: p.dungeonAttempts,
           pets: p.pets,
+          // only written once there is one, so nothing changes for everyone else
+          ...(p.hornWeapon ? { horn_weapon: p.hornWeapon, horn_equipped: !!p.hornEquipped } : {}),
           updated_at: new Date().toISOString(),
         })
         .eq("id", p.id),

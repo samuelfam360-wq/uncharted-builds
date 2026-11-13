@@ -5,7 +5,7 @@ import { MONSTERS, type EnemyAttack } from "../src/lib/game/data/world";
 import { attackSpec, maxHit } from "../src/lib/game/live";
 import { describeCondition } from "../src/lib/game/reveal";
 import * as game from "../src/lib/game/service";
-import { blank, engineSetup, faceOff, give, hit, newPlayer, seeded } from "./helpers";
+import { blank, engineSetup, faceOff, give, newPlayer, seeded } from "./helpers";
 
 const strike = (e: Engine, m: Monster, atk: EnemyAttack) => (e as unknown as { enemyStrikesPlayer(m: Monster, a: EnemyAttack): void }).enemyStrikesPlayer(m, atk);
 const owned = async (store: Awaited<ReturnType<typeof newPlayer>>["store"], id: string, skill: string) =>
@@ -65,21 +65,65 @@ describe("skills for those who keep falling", () => {
     expect(e.player.hp).toBeLessThan(hp);
   });
 
-  it("Horn Rabbit Weapons: Special grade, +20 STR, and no extra damage only for rabbits", async () => {
+  it("Horn Rabbit weapon: a real weapon of the type in your hand, +20 STR only while equipped", async () => {
     const { store, p } = await newPlayer();
-    const before = (await game.getState(store, p.id)).combat;
-    await give(store, p.id, "horn_rabbit_weapons");
-    const after = (await game.getState(store, p.id)).combat;
-    expect(after.stats.STR - before.stats.STR).toBe(20);
-    expect(after.passive.foe_bane).toBeUndefined();
-    const def = MASTERY_SKILLS.find((s) => s.id === "horn_rabbit_weapons")!;
-    expect(def.description).toContain("Special grade");
-    // the stronger hits are accepted by the server on any monster
-    const cap = maxHit(attackSpec("sword", after), after);
-    expect(cap).toBeGreaterThan(maxHit(attackSpec("sword", before), before));
+    const before = await game.getState(store, p.id);
+    expect(before.hornWeapon).toBeNull();
+    // earning it the real way: the 20th fall, with 50 rabbits already beaten
+    await store.applyCounters(p.id, { defeated_horned_rabbit: { op: "set", value: 50 }, killed_by_horned_rabbit: { op: "set", value: 19 } });
     const t = Date.now();
     await game.liveEnter(store, p.id, "mirewood_fields", t - 10_000);
-    await game.liveReport(store, p.id, blank("mirewood_fields", { hits: [hit(cap)] }), seeded(), t);
+    const res = await game.liveReport(store, p.id, blank("mirewood_fields", { type: "death", monsterId: "horned_rabbit", hp: 0 }), seeded(), t);
+    const note = res.unlocks.find((u) => u.id === "horn_rabbit_weapons")!;
+    expect(note.name).toBe("Horn Rabbit Sword");
+    expect(note.weapon).toBe(true);
+    const got = await game.getState(store, p.id);
+    expect(got.hornWeapon).toMatchObject({ type: "sword", name: "Horn Rabbit Sword", grade: "Special", equipped: true, attack: before.weapons.find((w) => w.type === "sword")!.attack });
+    expect(got.combat.stats.STR - before.combat.stats.STR).toBe(20);
+    // it is not a skill: not in the list, not in a slot, can't be equipped as one
+    expect(got.skills.some((s) => s.id === "horn_rabbit_weapons")).toBe(false);
+    expect(got.slots.passive.used).toBe(before.slots.passive.used);
+    await expect(game.setEquipped(store, p.id, "horn_rabbit_weapons", true)).rejects.toThrow();
+    // the stronger hits are accepted by the server
+    const cap = maxHit(attackSpec("sword", got.combat), got.combat);
+    expect(cap).toBeGreaterThan(maxHit(attackSpec("sword", before.combat), before.combat));
+    // unequip: the ordinary sword, no bonus
+    await game.weaponAction(store, p.id, "sword", "unequip");
+    const off = await game.getState(store, p.id);
+    expect(off.player.weapon).toBe("sword");
+    expect(off.hornWeapon?.equipped).toBe(false);
+    expect(off.combat.stats.STR).toBe(before.combat.stats.STR);
+    // equip again, then switch to another weapon: the bonus leaves with it, and it is never handed out twice
+    await game.weaponAction(store, p.id, "sword", "equip");
+    expect((await game.getState(store, p.id)).combat.stats.STR - before.combat.stats.STR).toBe(20);
+    const pl = (await store.getPlayer(p.id))!;
+    pl.ownedWeapons = [...pl.ownedWeapons, "hammer"];
+    await store.savePlayer(pl);
+    await game.weaponAction(store, p.id, "hammer");
+    const ham = await game.getState(store, p.id);
+    expect(ham.hornWeapon).toMatchObject({ type: "sword", equipped: false });
+    expect(ham.combat.stats.STR).toBe(before.combat.stats.STR);
+  });
+
+  it("Horn Rabbit weapon: an old owner of the skill gets the weapon; bare fists wait for a weapon", async () => {
+    const def = MASTERY_SKILLS.find((s) => s.id === "horn_rabbit_weapons")!;
+    expect(def.effect).toEqual({});
+    // someone who had it as a skill, holding a hammer
+    const a = await newPlayer("blacksmith");
+    await give(a.store, a.p.id, "horn_rabbit_weapons");
+    const sa = await game.getState(a.store, a.p.id);
+    expect(sa.hornWeapon).toMatchObject({ type: "hammer", name: "Horn Rabbit Hammer", equipped: true });
+    expect(sa.skills.some((s) => s.id === "horn_rabbit_weapons")).toBe(false);
+    // with bare fists there is nothing to make it from yet
+    const b = await newPlayer("free");
+    await give(b.store, b.p.id, "horn_rabbit_weapons");
+    expect((await game.getState(b.store, b.p.id)).hornWeapon).toBeNull();
+    await expect(game.weaponAction(b.store, b.p.id, "sword", "equip")).rejects.toThrow();
+    const pl = (await b.store.getPlayer(b.p.id))!;
+    pl.ownedWeapons = [...pl.ownedWeapons, "bow"];
+    pl.weapon = "bow";
+    await b.store.savePlayer(pl);
+    expect((await game.getState(b.store, b.p.id)).hornWeapon).toMatchObject({ type: "bow", name: "Horn Rabbit Bow", equipped: true });
   });
 
   it("Poison Toad Armour: +10% poison resistance", async () => {

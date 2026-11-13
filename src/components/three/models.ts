@@ -7,6 +7,7 @@ import * as THREE from "three";
 import type { WeaponType } from "@/lib/game/types";
 import type { Look } from "../side/hero";
 import { MONSTER_LOOKS } from "../side/sprites";
+import { makeHornWeapon } from "./hornWeapons";
 
 export const U = 1 / 64; // game units -> scene units
 
@@ -134,7 +135,9 @@ export type HeroPose = "idle" | "walk" | "jump" | "fall" | "attack" | "cast" | "
 
 export interface HeroModel {
   root: THREE.Group;
-  set(weapon: WeaponType): void;
+  /** Put a weapon in the hands; horn = the Horn Rabbit version of it. */
+  set(weapon: WeaponType, horn?: boolean): void;
+  horn?: boolean;
   animate(pose: HeroPose, t: number, walkT: number, progress: number): void;
   weapon: WeaponType | null;
 }
@@ -235,12 +238,13 @@ export function makeHero(L: Look): HeroModel {
   const model: HeroModel = {
     root,
     weapon: null,
-    set(weapon) {
-      if (model.weapon === weapon) return;
+    set(weapon, horn = false) {
+      if (model.weapon === weapon && !!model.horn === horn) return;
       model.weapon = weapon;
+      model.horn = horn;
       handR.clear();
       handL.clear();
-      const w = makeWeapon(weapon);
+      const w = horn ? makeHornWeapon(weapon, L.glow) : makeWeapon(weapon);
       if (w.right) handR.add(w.right);
       if (w.left) handL.add(w.left);
     },

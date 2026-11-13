@@ -679,7 +679,7 @@ export class World3D {
     const h = this.hero;
     this.heroBody = info.look.body;
     const p = e.player;
-    h.set(e.weapon);
+    h.set(e.weapon, e.horn);
     toScene(p.x, p.y, p.z, h.root.position);
     h.root.rotation.y = p.yaw;
     const feel = WEAPON_FEEL[e.weapon];
@@ -846,7 +846,7 @@ export class World3D {
       const cl = e.clones[i];
       c.model.root.visible = !!cl;
       if (!cl) return;
-      c.model.set(e.weapon);
+      c.model.set(e.weapon, e.horn);
       toScene(cl.x, cl.y, cl.z, c.model.root.position);
       c.model.root.rotation.y = cl.yaw;
       const struck = now - (cl.nextAt - WEAPON_FEEL[e.weapon].interval);

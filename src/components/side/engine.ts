@@ -420,6 +420,8 @@ export class Engine {
   private presses: Press[] = [];
   combat: CombatInfo;
   weapon: WeaponType;
+  /** The weapon in hand is the Horn Rabbit one (only changes how it looks; its STR is already in the stats). */
+  horn = false;
   bag: { itemId: string; qty: number }[] = [];
   run: { room: number; totalRooms: number; cleared: boolean } | null = null;
   now = 0;

@@ -337,7 +337,7 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
     ctx.fill();
     ctx.scale(c.facing, 1);
     const since = now - (c.nextAt - WEAPON_FEEL[e.weapon].interval);
-    drawHero(ctx, info.look, { pose: since < 300 ? "attack" : "idle", t: now, progress: Math.min(1, Math.max(0, since / 300)), weapon: e.weapon });
+    drawHero(ctx, info.look, { pose: since < 300 ? "attack" : "idle", t: now, progress: Math.min(1, Math.max(0, since / 300)), weapon: e.weapon, horn: e.horn });
     ctx.restore();
   }
   drawPlayer(ctx, e, info);
@@ -606,7 +606,7 @@ function drawPlayer(ctx: Ctx, e: Engine, info: DrawInfo) {
   }
   ctx.save();
   ctx.scale(p.facing, 1);
-  drawHero(ctx, info.look, { pose, t: p.onLadder ? p.walkT : pose === "walk" ? p.walkT : now, progress, weapon: e.weapon });
+  drawHero(ctx, info.look, { pose, t: p.onLadder ? p.walkT : pose === "walk" ? p.walkT : now, progress, weapon: e.weapon, horn: e.horn });
   ctx.restore();
   // Green Slime's Mercy: a wobbly coat of green slime over the whole body
   if (e.combat.passive.slime_mercy && !p.dead) {

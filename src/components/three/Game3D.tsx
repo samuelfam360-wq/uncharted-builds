@@ -325,6 +325,7 @@ export default function Game3D({
           now: performance.now(),
         });
         e.setPets(petsOf(st));
+        e.horn = !!st.hornWeapon?.equipped;
         // the 3D view
         if (!canvasRef.current || !overlayRef.current) throw new Error("No screen to draw on");
         try {
@@ -367,6 +368,7 @@ export default function Game3D({
       adopt ? state.player.currentMp : undefined,
       quiet ? state.inventory : undefined,
     );
+    e.horn = !!state.hornWeapon?.equipped;
     e.setPets(petsOf(state));
     if (adopt) adoptNext.current = false;
   }, [state]);

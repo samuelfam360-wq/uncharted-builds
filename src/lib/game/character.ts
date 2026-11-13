@@ -1,3 +1,4 @@
+import { HORN_STR, hornInHand } from "./constants";
 import {
   BASE_HP,
   BASE_MP,
@@ -171,6 +172,8 @@ export function derive(
   if (unique?.equipped) {
     for (const [k, v] of Object.entries(unique.statBonus)) bonus[k as StatKey] += Math.round((v ?? 0) * (1 + 0.1 * (unique.level - 1)));
   }
+  // the Horn Rabbit weapon gives its strength only while it is in your hand
+  if (hornInHand(p)) bonus.STR += HORN_STR;
 
   for (const d of equipped) {
     const e = d.effect;

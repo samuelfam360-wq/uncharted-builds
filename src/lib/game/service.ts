@@ -2,7 +2,7 @@
 // flush counters, run the skill rule engine, persist. Nothing here trusts the client.
 
 import { randomUUID } from "node:crypto";
-import { WEAPON_PRICE, WEAPONS, expToNext } from "./constants";
+import { HORN_SKILL_ID, WEAPON_PRICE, WEAPONS, expToNext, hornInHand, hornWeaponDef } from "./constants";
 import {
   GameError,
   allocatePoints,
@@ -35,6 +35,7 @@ export interface UnlockNotice {
   needsConfirmation: boolean;
   evolvedFrom: string | null;
   earnedBy: string[]; // what you did to unlock it, in plain words
+  weapon?: boolean; // a weapon you were given, not a skill
 }
 
 interface Loaded {
@@ -98,7 +99,8 @@ export async function checkUnlocks(
     let working = skills;
     for (const { skill, needsConfirmation } of candidates) {
       const prev = skill.evolvesFrom ? working.find((s) => s.skillId === skill.evolvesFrom) : undefined;
-      const equipped = !needsConfirmation && (prev?.equipped || canEquip(player, working, defs, skill.id));
+      // the Horn Rabbit weapon is a weapon, not a skill: it never takes a skill slot
+      const equipped = skill.id !== HORN_SKILL_ID && !needsConfirmation && (prev?.equipped || canEquip(player, working, defs, skill.id));
       const ok = await store.grantSkill(playerId, skill.id, {
         status: needsConfirmation ? "offered" : "owned",
         equipped,
@@ -107,6 +109,27 @@ export async function checkUnlocks(
       });
       if (!ok) continue; // server-first skill already taken
       working = await store.getPlayerSkills(playerId);
+      if (skill.id === HORN_SKILL_ID) {
+        // you get the horn version of the weapon in your hand, and it goes straight into it
+        const fresh = await store.getPlayer(playerId);
+        const got = fresh && (await claimHornWeapon(store, fresh, working));
+        if (got) {
+          const w = hornWeaponDef(got)!;
+          notices.push({
+            id: skill.id,
+            name: w.name,
+            description: `${w.grade} grade. A weapon made from the Horned Rabbit's horn: you can only ever get one. +${w.str} STR while it is equipped. Equip or unequip it in the weapon shop.`,
+            kind: "passive",
+            locks: [],
+            excludes: [],
+            needsConfirmation: false,
+            evolvedFrom: null,
+            earnedBy: describeCondition(skill.conditions, (id) => defs.get(id)?.name ?? id),
+            weapon: true,
+          });
+        }
+        continue;
+      }
       notices.push({
         id: skill.id,
         name: skill.name,
@@ -123,6 +146,23 @@ export async function checkUnlocks(
   return notices;
 }
 
+/**
+ * Horn Rabbit weapon: whoever has earned it (the hidden "skill" row is only the record
+ * of that) gets the horn version of the weapon in their hand, once. With bare fists
+ * there is nothing to make it from, so it waits until a weapon is held.
+ * Returns the weapon type when it was handed over just now.
+ */
+async function claimHornWeapon(store: GameStore, player: Player, skills: PlayerSkill[]): Promise<WeaponType | null> {
+  const row = skills.find((s) => s.skillId === HORN_SKILL_ID && s.status === "owned");
+  if (!row) return null;
+  if (row.equipped) await store.updatePlayerSkill(player.id, HORN_SKILL_ID, { equipped: false });
+  if (player.hornWeapon || !hornWeaponDef(player.weapon)) return null;
+  player.hornWeapon = player.weapon;
+  player.hornEquipped = true;
+  await store.savePlayer(player);
+  return player.hornWeapon;
+}
+
 // ---------- Player-facing state ----------
 
 export async function getState(store: GameStore, playerId: string) {
@@ -132,6 +172,8 @@ export async function getState(store: GameStore, playerId: string) {
     store.getActiveBattle(playerId),
     store.getCounters(playerId),
   ]);
+  // someone who earned the Horn Rabbit weapon before it was a weapon gets it now
+  await claimHornWeapon(store, player, skills);
   const d = derive(player, skills, defs, unique);
   return {
     player,
@@ -151,7 +193,7 @@ export async function getState(store: GameStore, playerId: string) {
     }),
     // Players see names and effects, never the conditions that unlocked them.
     skills: skills
-      .filter((s) => s.status !== "declined" && !s.evolvedInto)
+      .filter((s) => s.status !== "declined" && !s.evolvedInto && s.skillId !== HORN_SKILL_ID)
       .map((s) => {
         const def = defs.get(s.skillId);
         return {
@@ -194,6 +236,7 @@ export async function getState(store: GameStore, playerId: string) {
     battle: battle ? publicBattle(battle) : null,
     zones: Object.values(ZONES).map((z) => ({ id: z.id, name: z.name, kind: z.kind, description: z.description })),
     weapons: Object.values(WEAPONS).map((w) => ({ ...w, owned: player.ownedWeapons.includes(w.type) })),
+    hornWeapon: player.hornWeapon && hornWeaponDef(player.hornWeapon) ? { ...hornWeaponDef(player.hornWeapon)!, equipped: hornInHand(player) } : null,
     weaponPrice: WEAPON_PRICE,
     // What the live fights in the browser need to use the same math as the server.
     combat: {
@@ -272,7 +315,7 @@ export async function setEquipped(store: GameStore, playerId: string, skillId: s
   if (await store.getActiveBattle(playerId)) throw new GameError("You can't change skills mid-battle");
   const { player, skills, defs } = await load(store, playerId);
   const row = skills.find((s) => s.skillId === skillId && s.status === "owned" && !s.evolvedInto);
-  if (!row) throw new GameError("You don't own that skill");
+  if (!row || skillId === HORN_SKILL_ID) throw new GameError("You don't own that skill");
   if (equipped && !row.equipped && !canEquip(player, skills, defs, skillId)) throw new GameError("No free slot. Unequip something first.");
   await store.updatePlayerSkill(playerId, skillId, { equipped });
 }
@@ -288,11 +331,21 @@ export async function rest(store: GameStore, playerId: string) {
   await store.savePlayer(player);
 }
 
-export async function weaponAction(store: GameStore, playerId: string, weapon: WeaponType) {
+export async function weaponAction(store: GameStore, playerId: string, weapon: WeaponType, horn?: "equip" | "unequip") {
   if (await store.getActiveBattle(playerId)) throw new GameError("You're in a battle");
   const player = await store.getPlayer(playerId);
   if (!player) throw new GameError("Character not found", 404);
+  if (horn) {
+    // the Horn Rabbit weapon: put it in your hand, or put it away and hold the ordinary one of its kind
+    if (!player.hornWeapon) throw new GameError("You don't have a Horn Rabbit weapon");
+    player.weapon = player.hornWeapon;
+    player.hornEquipped = horn === "equip";
+    if (!player.ownedWeapons.includes(player.weapon)) player.ownedWeapons.push(player.weapon);
+    await store.savePlayer(player);
+    return;
+  }
   if (!WEAPON_TYPES.includes(weapon)) throw new GameError("Unknown weapon");
+  player.hornEquipped = false;
   if (!player.ownedWeapons.includes(weapon)) {
     if (player.gold < WEAPON_PRICE) throw new GameError(`You need ${WEAPON_PRICE} gold`);
     player.gold -= WEAPON_PRICE;

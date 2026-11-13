@@ -104,14 +104,15 @@ export const WEAPON_STYLE: Record<WeaponType, WeaponStyle> = {
 
 const PANTS = "#3b3f58";
 const SHOES = "#4a3428";
-const WOOD = "#c8925a";
-const WOOD_DARK = "#8a5a32";
+const WOOD_C = "#c8925a";
+const WOOD_DARK_C = "#8a5a32";
 
 export interface HeroFrame {
   pose: Pose;
   t: number; // ms, for idle bob and walk cycle
   progress: number; // 0..1 through an attack / cast
   weapon: WeaponType;
+  horn?: boolean; // the Horn Rabbit version of the weapon
 }
 
 /** Draw with the feet at (0,0), facing right. The caller flips for left. */
@@ -241,7 +242,7 @@ export function drawHero(ctx: Ctx, L: Look, f: HeroFrame) {
   drawHairTop(ctx, L, hy);
 
   // ----- front arm with the weapon -----
-  drawArm(ctx, L, { x: 6, y: -44 }, armAngle(pose, style, progress, t, false), true, f.weapon, pose, progress);
+  drawArm(ctx, L, { x: 6, y: -44 }, armAngle(pose, style, progress, t, false), true, f.weapon, pose, progress, f.horn);
 
   // block shimmer
   if (pose === "block") {
@@ -312,6 +313,7 @@ function drawArm(
   weapon?: WeaponType,
   pose?: Pose,
   progress = 0,
+  horn = false,
 ) {
   ctx.save();
   ctx.translate(shoulder.x, shoulder.y);
@@ -325,13 +327,16 @@ function drawArm(
   outlined(ctx, ellipse(0, reach + 2, 6, 6), L.skin, 3);
   if (front && weapon) {
     ctx.translate(0, reach + 2);
-    drawWeapon(ctx, weapon);
+    drawWeapon(ctx, weapon, horn);
   }
   ctx.restore();
 }
 
 /** Weapons in the hand. The arm points along +y here. */
-function drawWeapon(ctx: Ctx, w: WeaponType) {
+function drawWeapon(ctx: Ctx, w: WeaponType, horn = false) {
+  // the Horn Rabbit version: ivory horn on a dark leather grip
+  const WOOD = horn ? "#fbeed0" : WOOD_C;
+  const WOOD_DARK = horn ? "#7a4a2a" : WOOD_DARK_C;
   switch (w) {
     case "sword":
       outlined(ctx, roundRect(-3, -6, 6, 12, 2), WOOD_DARK, 3);
