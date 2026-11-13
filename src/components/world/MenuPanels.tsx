@@ -165,7 +165,7 @@ export default function MenuPanels({
       <div className="flex items-baseline justify-between">
         <h3 className="title text-lg">Skills</h3>
         <span className="text-xs text-muted">
-          Active {state.slots.active.used}/{state.slots.active.max} · Passive {state.slots.passive.used}/{state.slots.passive.max}
+          Active {state.slots.active.used}/{state.slots.active.max} · Passive {state.slots.passive.used}
         </span>
       </div>
       {owned.length === 0 ? (

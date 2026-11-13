@@ -16,7 +16,6 @@ export const WEAPON_PRICE = 30;
 export const expToNext = (level: number) => Math.round(40 * Math.pow(level, 1.4));
 
 export const activeSlots = (level: number) => 4 + Math.floor(level / 5);
-export const passiveSlots = (level: number) => 4 + Math.floor(level / 10);
 
 export const emptyStats = (): Stats => ({ HP: 0, MP: 0, STR: 0, VIT: 0, AGI: 0, DEX: 0, INT: 0 });
 
