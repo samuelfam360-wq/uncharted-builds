@@ -11,7 +11,6 @@ import {
   activeSlots,
   emptyStats,
   expToNext,
-  passiveSlots,
 } from "./constants";
 import { CLASSES, cleanAppearance } from "./data/classes";
 import {
@@ -258,12 +257,13 @@ export function derive(
 }
 
 // ---------- Skill slots ----------
+// Active skills have slots. Passive skills have no limit: every one you own can be on.
 
 export function slotUsage(p: Player, skills: PlayerSkill[], defs: Map<string, SkillDefinition>) {
   const eq = equippedSkills(skills, defs);
   return {
     active: { used: eq.filter((d) => d.kind === "active").length, max: activeSlots(p.level) },
-    passive: { used: eq.filter((d) => d.kind === "passive").length, max: passiveSlots(p.level) },
+    passive: { used: eq.filter((d) => d.kind === "passive").length, max: null as number | null },
   };
 }
 
@@ -271,5 +271,5 @@ export function canEquip(p: Player, skills: PlayerSkill[], defs: Map<string, Ski
   const d = defs.get(skillId);
   if (!d) return false;
   const u = slotUsage(p, skills, defs);
-  return d.kind === "active" ? u.active.used < u.active.max : u.passive.used < u.passive.max;
+  return d.kind === "active" ? u.active.used < u.active.max : true;
 }
