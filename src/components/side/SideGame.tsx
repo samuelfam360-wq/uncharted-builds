@@ -312,6 +312,7 @@ export default function SideGame({
           now: performance.now(),
         });
         e.setPets(petsOf(st));
+        e.horn = !!st.hornWeapon?.equipped;
         engineRef.current = e;
         setEngine(e);
         adoptNext.current = false;
@@ -342,6 +343,7 @@ export default function SideGame({
       adopt ? state.player.currentMp : undefined,
       quiet ? state.inventory : undefined,
     );
+    e.horn = !!state.hornWeapon?.equipped;
     e.setPets(petsOf(state));
     if (adopt) adoptNext.current = false;
   }, [state]);

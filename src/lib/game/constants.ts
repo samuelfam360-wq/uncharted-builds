@@ -76,6 +76,40 @@ export const WEAPONS: Record<WeaponType, WeaponDef> = {
   unarmed: { type: "unarmed", name: "Bare Fists", material: null, rarity: null, attack: 0, element: "physical", fists: true, blurb: "Nothing but you." },
 };
 
+/** Horn Rabbit weapons: Special grade, one per character, made from the Horned Rabbit's horn. */
+export const HORN_SKILL_ID = "horn_rabbit_weapons";
+export const HORN_GRADE = "Special";
+export const HORN_STR = 20;
+const HORN_NAMES: Partial<Record<WeaponType, string>> = {
+  sword: "Horn Rabbit Sword",
+  daggers: "Horn Rabbit Daggers",
+  hammer: "Horn Rabbit Hammer",
+  lance: "Horn Rabbit Lance",
+  large_shield: "Horn Rabbit Shield",
+  bow: "Horn Rabbit Bow",
+  pistol: "Horn Rabbit Pistol",
+  staff: "Horn Rabbit Staff",
+  tamer_wand: "Horn Rabbit Tamer Wand",
+  healing_bracelet: "Horn Rabbit Healing Bracelets",
+  strength_bracelet: "Horn Rabbit Strength Bracelets",
+};
+/** The horn version of a weapon type (there is none for bare fists). */
+export function hornWeaponDef(type: WeaponType): (WeaponDef & { grade: string; str: number }) | null {
+  const name = HORN_NAMES[type];
+  if (!name) return null;
+  return {
+    ...WEAPONS[type],
+    name,
+    material: null,
+    rarity: null,
+    grade: HORN_GRADE,
+    str: HORN_STR,
+    blurb: `Made from the Horned Rabbit's horn. +${HORN_STR} STR while equipped.`,
+  };
+}
+/** Is the Horn Rabbit weapon the one in this player's hand? */
+export const hornInHand = (p: { weapon: WeaponType; hornWeapon?: WeaponType | null; hornEquipped?: boolean }) => !!p.hornEquipped && !!p.hornWeapon && p.hornWeapon === p.weapon;
+
 export const STAT_INFO: Record<StatKey, string> = {
   HP: "Health pool (+10 max HP per point)",
   MP: "Mana for skills (+5 max MP per point)",

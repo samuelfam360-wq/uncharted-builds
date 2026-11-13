@@ -79,6 +79,10 @@ export interface Player {
   gold: number;
   weapon: WeaponType;
   ownedWeapons: WeaponType[];
+  /** Your Horn Rabbit weapon, got once: the type you were holding when you earned it. */
+  hornWeapon?: WeaponType | null;
+  /** Whether the Horn Rabbit weapon is the one in your hand (then `weapon` is its type). */
+  hornEquipped?: boolean;
   currentHp: number;
   currentMp: number;
   stats: Stats; // points spent (allocated), not derived

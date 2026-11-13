@@ -601,7 +601,8 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
   def({
     id: "horn_rabbit_weapons",
     name: "Horn Rabbit Weapons",
-    description: "Special grade. Weapons made from the Horned Rabbit's horn: you can only get them once. +20 STR.",
+    // Not a skill the player sees: earning it hands over the Horn Rabbit weapon (see claimHornWeapon).
+    description: "Special grade. A weapon made from the Horned Rabbit's horn: you can only ever get one. +20 STR while it is equipped.",
     kind: "passive",
     conditions: {
       all: [
@@ -609,7 +610,7 @@ export const MASTERY_SKILLS: SkillDefinition[] = [
         { counter: "defeated_horned_rabbit", op: ">=", value: 50 },
       ],
     },
-    effect: { stat_bonus: { STR: 20 } },
+    effect: {},
   }),
   def({
     id: "poison_toad_armour",

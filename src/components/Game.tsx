@@ -216,8 +216,26 @@ export default function Game() {
             <p className="text-sm text-muted">
               New weapons cost {state.weaponPrice} gold. You have {player.gold} gold. Weapons you own can be equipped for free.
             </p>
+            {state.hornWeapon && (
+              <div className="flex items-center gap-2 rounded-lg border border-gold/60 bg-panel-2 p-2">
+                <div className="flex-1">
+                  <div className="text-sm font-semibold">
+                    {state.hornWeapon.name}
+                    <span className="ml-1 text-[11px] font-normal text-gold">{state.hornWeapon.grade}</span>
+                  </div>
+                  <div className="text-xs text-muted">{state.hornWeapon.blurb}</div>
+                </div>
+                <button
+                  className={`btn px-2 py-1 text-xs ${state.hornWeapon.equipped ? "border-gold text-gold" : ""}`}
+                  disabled={busy}
+                  onClick={() => run(() => api("/api/town", { action: "weapon", horn: state.hornWeapon!.equipped ? "unequip" : "equip", withState: true }))}
+                >
+                  {state.hornWeapon.equipped ? "Unequip" : "Equip"}
+                </button>
+              </div>
+            )}
             {state.weapons.map((w) => {
-              const equipped = player.weapon === w.type;
+              const equipped = player.weapon === w.type && !state.hornWeapon?.equipped;
               return (
                 <div key={w.type} className="flex items-center gap-2 rounded-lg bg-panel-2 p-2">
                   <div className="flex-1">
@@ -245,7 +263,7 @@ export default function Game() {
       {unlocks.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
           <div className="unlock-card w-full max-w-md rounded-2xl border border-gold bg-panel p-6 text-center">
-            <div className="label text-gold">{unlocks[0].evolvedFrom ? `${unlocks[0].evolvedFrom} evolves` : "Hidden skill unlocked"}</div>
+            <div className="label text-gold">{unlocks[0].weapon ? "Special grade weapon" : unlocks[0].evolvedFrom ? `${unlocks[0].evolvedFrom} evolves` : "Hidden skill unlocked"}</div>
             <h2 className="title mt-2 text-3xl text-gold">{unlocks[0].name}</h2>
             <p className="mt-3">{unlocks[0].description}</p>
             {unlocks[0].needsConfirmation && <p className="mt-3 text-sm text-blood">This power has a price. Decide whether to accept it in your MENU.</p>}

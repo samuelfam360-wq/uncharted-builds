@@ -11,7 +11,7 @@ export const POST = handle(async (body) => {
       await rest(store, id);
       return { log: ["You rest at the inn. HP and MP fully restored."] };
     case "weapon":
-      await weaponAction(store, id, body.weapon);
+      await weaponAction(store, id, body.weapon, body.horn === "equip" || body.horn === "unequip" ? body.horn : undefined);
       return { ok: true };
     case "eat":
       return eat(store, id, body.itemId);

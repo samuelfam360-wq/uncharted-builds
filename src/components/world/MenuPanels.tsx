@@ -55,6 +55,27 @@ export default function MenuPanels({
 
   return (
     <div className="space-y-4">
+
+    {state.hornWeapon && (
+      <section className="panel border-gold/60" data-testid="horn-weapon">
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <div className="label text-gold">{state.hornWeapon.grade} grade weapon</div>
+            <div className="text-sm font-semibold">{state.hornWeapon.name}</div>
+            <div className="text-xs text-muted">
+              Attack {state.hornWeapon.attack} · +{state.hornWeapon.str} STR while equipped · You can only ever have one.
+            </div>
+          </div>
+          <button
+            className={`btn px-2 py-1 text-xs ${state.hornWeapon.equipped ? "border-gold text-gold" : ""}`}
+            disabled={busy || battle}
+            onClick={() => town({ action: "weapon", horn: state.hornWeapon!.equipped ? "unequip" : "equip" })}
+          >
+            {state.hornWeapon.equipped ? "Unequip" : "Equip"}
+          </button>
+        </div>
+      </section>
+    )}
     {state.firstPetChoices.length > 0 && (
       <section className="panel border-gold/60">
         <div className="label text-gold">Tamer</div>

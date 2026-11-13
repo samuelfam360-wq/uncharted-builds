@@ -11,6 +11,7 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 import type { WeaponType } from "@/lib/game/types";
 import { BODY_OPTIONS } from "@/lib/game/data/classes";
 import type { Look } from "../side/hero";
+import { makeHornWeapon } from "./hornWeapons";
 import { WEAPON_LOOK, makeWeapon, type HeroModel, type HeroPose } from "./models";
 
 export const BODIES = BODY_OPTIONS;
@@ -483,19 +484,20 @@ export function makeRiggedHero(look: Look): HeroModel | null {
   const model: HeroModel = {
     root,
     weapon: null,
-    set(weapon) {
-      if (model.weapon === weapon) return;
+    set(weapon, horn = false) {
+      if (model.weapon === weapon && !!model.horn === horn) return;
       model.weapon = weapon;
+      model.horn = horn;
       holdR.clear();
       holdL.clear();
       // a staff or wand keeps its gem at the top
       const upright = weapon === "staff" || weapon === "tamer_wand";
       holdR.rotation.x = upright ? 0 : Math.PI;
-      const w = makeWeapon(weapon);
+      const w = horn ? makeHornWeapon(weapon, look.glow) : makeWeapon(weapon);
       if (w.right) holdR.add(w.right);
       if (w.left) holdL.add(w.left);
-      // the weapon picks up a soft glow in the hero's colour
-      if (look.glow)
+      // the weapon picks up a soft glow in the hero's colour (a horn weapon has its own glowing ring)
+      if (look.glow && !horn)
         for (const hold of [holdR, holdL])
           hold.traverse((o) => {
             const mat = (o as THREE.Mesh).material as THREE.MeshToonMaterial | undefined;
