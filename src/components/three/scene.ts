@@ -784,8 +784,11 @@ export class World3D {
     for (const mat of v.model.mats) {
       // slowed by Wolf's Scars: a dull red that beats slowly
       const scarred = !dead && (m.scarSlow ?? 1) < 1;
-      mat.emissive.set(flash ? "#ffffff" : windup ? "#ff3020" : scarred ? "#c01818" : "#000000");
-      mat.emissiveIntensity = flash ? 0.8 : windup ? 0.25 + 0.2 * Math.sin(now / 50) : scarred ? 0.3 + 0.12 * Math.sin(now / 260) : 0;
+      // otherwise its own faint glow (the plush look)
+      const glow = mat.userData.glow as { color: THREE.Color; intensity: number };
+      if (flash || windup || scarred) mat.emissive.set(flash ? "#ffffff" : windup ? "#ff3020" : "#c01818");
+      else mat.emissive.copy(glow.color);
+      mat.emissiveIntensity = flash ? 0.8 : windup ? 0.25 + 0.2 * Math.sin(now / 50) : scarred ? 0.3 + 0.12 * Math.sin(now / 260) : glow.intensity;
       if (dead) {
         mat.transparent = true;
         mat.opacity = fade;

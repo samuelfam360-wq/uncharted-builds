@@ -1,5 +1,6 @@
 // 3D models for the game, built in code from simple rounded shapes:
 // soft toon shading with a dark outline, bright colours, chibi proportions.
+// Monsters and pets use a softer plush look with no outline and big shiny eyes.
 // Every model faces +z and stands with its feet at y = 0. One world unit here
 // is one tile (64 game units), so the player is about 1.3 tall.
 
@@ -427,7 +428,7 @@ export const SPECIES_COLOR: Record<string, string> = {
 export interface MonsterModel {
   root: THREE.Group;
   /** Materials of its own, so it can flash white when hit. */
-  mats: THREE.MeshToonMaterial[];
+  mats: MonsterMat[];
   animate(pose: "rest" | "walk" | "windup" | "attack" | "dead", t: number, walkT: number): void;
   height: number;
 }
@@ -450,9 +451,131 @@ export function bodySpecies(species: string): string {
   return parts.reduce((a, b) => (MONSTER_LOOKS[b].body.w * MONSTER_LOOKS[b].body.h > MONSTER_LOOKS[a].body.w * MONSTER_LOOKS[a].body.h ? b : a));
 }
 
+// ----- soft chibi parts: plush shading, no ink outline, big shiny eyes -----
+
+export type MonsterMat = THREE.MeshPhysicalMaterial;
+const PLUSH_GLOW = 0.3;
+/** A plush material of its own. It glows faintly in its own colour so it stays soft at dusk. */
+function ownPlush(color: string, opts: { transparent?: boolean; opacity?: number; double?: boolean } = {}): MonsterMat {
+  const m = new THREE.MeshPhysicalMaterial({
+    color,
+    roughness: 0.78,
+    sheen: 1,
+    sheenRoughness: 0.5,
+    sheenColor: new THREE.Color(lighten(color, 0.55)),
+    emissive: color,
+    emissiveIntensity: PLUSH_GLOW,
+  });
+  // what the scene goes back to when the monster is not flashing
+  m.userData.glow = { color: new THREE.Color(color), intensity: PLUSH_GLOW };
+  if (opts.transparent) {
+    m.transparent = true;
+    m.opacity = opts.opacity ?? 0.85;
+  }
+  if (opts.double) m.side = THREE.DoubleSide;
+  return m;
+}
+const softShared = new Map<string, THREE.Material>();
+/** A shared plush material, for small parts that never flash. */
+function soft(color: string, glow = PLUSH_GLOW): THREE.Material {
+  const key = `p|${color}|${glow}`;
+  let m = softShared.get(key);
+  if (!m) {
+    const p = ownPlush(color);
+    p.emissiveIntensity = glow;
+    m = p;
+    softShared.set(key, m);
+  }
+  return m;
+}
+/** A flat colour that ignores the light (eye shine, blush, mouths). */
+function flat(color: string, opacity = 1, power = 1): THREE.Material {
+  const key = `f|${color}|${opacity}|${power}`;
+  let m = softShared.get(key);
+  if (!m) {
+    const b = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(power) });
+    if (opacity < 1) {
+      b.transparent = true;
+      b.opacity = opacity;
+      b.depthWrite = false;
+    }
+    m = b;
+    softShared.set(key, m);
+  }
+  return m;
+}
+function glossy(): THREE.Material {
+  let m = softShared.get("eye");
+  if (!m) {
+    m = new THREE.MeshPhysicalMaterial({ color: "#2b1c3a", roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05 });
+    softShared.set("eye", m);
+  }
+  return m;
+}
+/** A soft part: no outline. */
+const blob = (geo: THREE.BufferGeometry, mat: THREE.Material, shadow = true) => piece(geo, mat, { outline: false, shadow });
+const caps = (r: number, len: number) => cached(`sc${r}|${len}`, () => new THREE.CapsuleGeometry(r, len, 8, 22));
+
+/** A big shiny eye: dark and glossy, a warm colour low in it, two white sparkles. `side` is -1 or 1. */
+function softEye(s: number, side: number, iris: string) {
+  const g = new THREE.Group();
+  g.rotation.y = side * 0.32;
+  g.add(at(blob(sphere(0.5, 24), glossy(), false), 0, 0, 0, [s, s * 1.24, s * 0.55]));
+  g.add(at(blob(sphere(0.5, 14), flat(iris), false), 0, -0.27 * s, 0.13 * s, [0.67 * s, 0.55 * s, 0.3 * s]));
+  g.add(at(blob(sphere(0.5, 10), flat("#ffffff"), false), -0.18 * s, 0.3 * s, 0.24 * s, [0.33 * s, 0.39 * s, 0.12 * s]));
+  g.add(at(blob(sphere(0.5, 8), flat("#ffffff"), false), 0.21 * s, -0.24 * s, 0.26 * s, [0.15 * s, 0.17 * s, 0.07 * s]));
+  return g;
+}
+/** A rosy cheek. */
+function blush(s: number, side: number, turn = 0.7) {
+  const b = blob(
+    cached("blush", () => new THREE.CircleGeometry(0.5, 20)),
+    flat("#ff7fa0", 0.55),
+    false,
+  );
+  b.rotation.y = side * turn;
+  b.scale.set(s * 1.25, s * 0.75, 1);
+  return b;
+}
+/** A little "w" mouth. */
+function smile(s: number) {
+  const g = new THREE.Group();
+  for (const x of [-1, 1]) {
+    const m = blob(torus(0.5, 0.11, Math.PI), flat("#7a4a3a"), false);
+    m.position.x = x * s * 0.5;
+    m.rotation.z = Math.PI;
+    m.scale.setScalar(s);
+    g.add(m);
+  }
+  return g;
+}
+/** A frowning brow, to make a cute face look fierce. */
+function brow(s: number, side: number) {
+  const b = blob(caps(0.5, 2.4), flat("#3a2a3f"), false);
+  b.scale.setScalar(s * 0.12);
+  b.rotation.z = Math.PI / 2 + side * 0.38;
+  return b;
+}
+/** The ivory horn with a gentle spiral. Stands along +y, base at 0. */
+function softHorn(s: number) {
+  const g = new THREE.Group();
+  const ivory = soft("#fff1cf", 0.2);
+  g.add(at(blob(cone(0.2, 1, 20), ivory), 0, 0.5 * s, 0, s));
+  for (let i = 0; i < 4; i++) {
+    const k = i / 4;
+    const ring = blob(torus(0.5, 0.1), ivory, false);
+    ring.position.y = (0.09 + k * 0.76) * s;
+    ring.rotation.x = Math.PI / 2 + 0.22;
+    ring.scale.setScalar(0.39 * s * (1 - k * 0.82));
+    g.add(ring);
+  }
+  return g;
+}
+
 /**
  * Build a monster (or a pet: a bred pet is its biggest parent's body,
  * coloured between its parents, wearing the others' features).
+ * Soft chibi style: round and squishy, a big head, big shiny eyes.
  */
 export function makeMonster(species: string): MonsterModel {
   const parts = species.split("+").filter((s) => MONSTER_LOOKS[s]);
@@ -464,9 +587,9 @@ export function makeMonster(species: string): MonsterModel {
     for (const o of others) c.lerp(new THREE.Color(SPECIES_COLOR[o] ?? color), 0.5 / others.length);
     color = "#" + c.getHexString();
   }
-  const mats: THREE.MeshToonMaterial[] = [];
-  const own = (hex: string, o?: { transparent?: boolean; opacity?: number }) => {
-    const m = ownToon(hex, o);
+  const mats: MonsterMat[] = [];
+  const own = (hex: string, o?: { transparent?: boolean; opacity?: number; double?: boolean }) => {
+    const m = ownPlush(hex, o);
     mats.push(m);
     return m;
   };
@@ -480,191 +603,308 @@ export function makeMonster(species: string): MonsterModel {
   let wingL: THREE.Object3D | null = null;
   let wingR: THREE.Object3D | null = null;
   let jaw: THREE.Object3D | null = null;
+  const eyes: THREE.Object3D[] = [];
+  /** Small extra motion: ears, tails, blinking. */
+  const extras: ((t: number, pose: string) => void)[] = [];
   const main = own(color);
-  const dark = own(lighten(color, -0.3));
-  const light = own(lighten(color, 0.35));
+  const dark = own(lighten(color, -0.22));
+  const light = own(lighten(color, 0.55));
 
-  // where features go on this body: top of the head, the back, the sides
-  let top = new THREE.Vector3(0, H, 0);
-  let back = new THREE.Vector3(0, H * 0.8, -W * 0.15);
-  let sides = W * 0.5;
-  let face = new THREE.Vector3(0, H * 0.6, W * 0.45);
+  // Each body is drawn in its own units inside `g`, then scaled to the monster's size.
+  const g = new THREE.Group();
+  rig.add(g);
+  let u = W;
+  const addEyes = (parent: THREE.Object3D, s: number, x: number, y: number, z: number, iris: string, tiltX = 0) => {
+    for (const side of [-1, 1]) {
+      const e = softEye(s, side, iris);
+      e.position.set(side * x, y, z);
+      e.rotation.x = tiltX;
+      eyes.push(e);
+      parent.add(e);
+    }
+  };
+  const addBlush = (parent: THREE.Object3D, s: number, x: number, y: number, z: number, turn = 0.7) => {
+    for (const side of [-1, 1]) parent.add(at(blush(s, side, turn), side * x, y, z));
+  };
+
+  // where features go on this body (in the body's own units): top of the head, the back, the sides
+  let top = new THREE.Vector3(0, 1, 0);
+  let back = new THREE.Vector3(0, 0.8, -0.15);
+  let sides = 0.5;
+  let face = new THREE.Vector3(0, 0.6, 0.45);
 
   switch (bodyId) {
     case "green_slime": {
-      rig.add(at(piece(sphere(0.5, 24), own(color, { transparent: true, opacity: 0.88 })), 0, H * 0.5, 0, [W, H * 1.35, W * 0.95]));
-      rig.add(at(piece(sphere(0.5, 12), toon("#ffffff", { opacity: 0.7 }), { outline: false, shadow: false }), -W * 0.18, H * 0.85, W * 0.2, [W * 0.22, H * 0.25, W * 0.12]));
-      face = new THREE.Vector3(0, H * 0.55, W * 0.44);
-      top = new THREE.Vector3(0, H * 1.1, 0);
+      // a jelly drop with a little tip on top
+      u = W;
+      const jelly = own(color, { transparent: true, opacity: 0.9 });
+      g.add(at(blob(sphere(0.5, 32), jelly), 0, 0.47, 0, [1, 0.95, 0.95]));
+      g.add(at(blob(sphere(0.5, 16), jelly), 0, 0.93, 0, [0.24, 0.2, 0.24]));
+      g.add(at(blob(sphere(0.5, 12), flat("#ffffff", 0.7), false), -0.22, 0.72, 0.3, [0.2, 0.13, 0.08]));
+      g.add(at(blob(sphere(0.5, 8), flat("#ffffff", 0.6), false), -0.08, 0.8, 0.27, [0.07, 0.05, 0.04]));
+      addEyes(g, 0.2, 0.19, 0.47, 0.435, "#2f9a55");
+      addBlush(g, 0.13, 0.34, 0.33, 0.37);
+      g.add(at(smile(0.055), 0, 0.33, 0.475));
+      face = new THREE.Vector3(0, 0.47, 0.44);
+      top = new THREE.Vector3(0, 0.95, 0);
       break;
     }
     case "horned_rabbit": {
-      rig.add(at(piece(sphere(0.5, 22), main), 0, H * 0.45, -W * 0.05, [W * 0.9, H * 0.85, W * 1.1]));
-      rig.add(at(piece(sphere(0.5, 20), main), 0, H * 0.78, W * 0.32, [W * 0.62, H * 0.62, W * 0.6]));
-      rig.add(at(piece(sphere(0.5, 12), light), 0, H * 0.4, W * 0.3, [W * 0.5, H * 0.4, W * 0.3]));
+      // small pudgy body, a head bigger than the body, long soft ears
+      u = H * 1.15;
+      g.add(at(blob(sphere(0.5, 28), main), 0, 0.32, 0, [0.64, 0.6, 0.62]));
+      g.add(at(blob(sphere(0.5, 20), light), 0, 0.29, 0.13, [0.46, 0.44, 0.42]));
+      g.add(at(blob(sphere(0.5, 14), light), 0, 0.3, -0.31, 0.2)); // fluffy tail
       for (const x of [-1, 1]) {
-        const ear = at(piece(capsule(W * 0.08, H * 0.55), main), x * W * 0.14, H * 1.25, W * 0.2);
-        ear.rotation.z = -x * 0.25;
-        ear.rotation.x = -0.25;
-        ear.add(at(piece(capsule(W * 0.045, H * 0.4), toon("#ffb3c1"), { outline: false }), 0, 0, W * 0.05));
-        rig.add(ear);
+        const backFoot = at(blob(sphere(0.5, 14), main), x * 0.25, 0.07, 0.04, [0.2, 0.14, 0.32]);
+        const frontFoot = at(blob(sphere(0.5, 14), light), x * 0.14, 0.08, 0.3, [0.15, 0.13, 0.19]);
+        g.add(backFoot, frontFoot);
       }
-      rig.add(at(piece(sphere(0.5, 10), toon("#ffffff")), 0, H * 0.5, -W * 0.6, W * 0.3));
-      for (const [x, z] of [
-        [-0.25, 0.25],
-        [0.25, 0.25],
-        [-0.25, -0.35],
-        [0.25, -0.35],
-      ]) {
-        const leg = at(piece(sphere(0.5, 10), dark), x * W, H * 0.08, z * W, [W * 0.22, H * 0.2, W * 0.32]);
-        legs.push(leg);
-        rig.add(leg);
+      const head = new THREE.Group();
+      head.position.set(0, 0.76, 0.07);
+      g.add(head);
+      head.add(at(blob(sphere(0.5, 32), main), 0, 0, 0, [0.84, 0.72, 0.76]));
+      for (const x of [-1, 1]) head.add(at(blob(sphere(0.5, 14), main), x * 0.23, -0.14, 0.13, [0.27, 0.22, 0.27])); // puffy cheeks
+      head.add(at(blob(sphere(0.5, 14), light), 0, -0.145, 0.29, [0.25, 0.16, 0.17])); // muzzle
+      head.add(at(blob(sphere(0.5, 10), soft("#ff9db5")), 0, -0.1, 0.372, [0.07, 0.048, 0.04])); // nose
+      head.add(at(smile(0.052), 0, -0.14, 0.376));
+      addEyes(head, 0.165, 0.175, 0, 0.305, "#a8572f");
+      addBlush(head, 0.12, 0.285, -0.095, 0.285);
+      const ears: THREE.Group[] = [];
+      for (const x of [-1, 1]) {
+        const pivot = new THREE.Group();
+        pivot.position.set(x * 0.15, 0.27, -0.03);
+        pivot.rotation.z = -x * 0.2;
+        pivot.add(at(blob(caps(0.085, 0.36), main), 0, 0.27, 0, [1, 1, 0.5]));
+        pivot.add(at(blob(caps(0.05, 0.3), soft("#ff9db5"), false), 0, 0.26, 0.028, [1, 1, 0.35]));
+        ears.push(pivot);
+        head.add(pivot);
       }
-      face = new THREE.Vector3(0, H * 0.82, W * 0.6);
-      top = new THREE.Vector3(0, H * 1.08, W * 0.45);
+      extras.push((t, pose) => {
+        const lean = pose === "attack" ? -0.6 : pose === "windup" ? 0.35 : pose === "walk" ? -0.3 : 0;
+        for (const e of ears) e.rotation.x += (lean - 0.12 + Math.sin(t / 590) * 0.08 - e.rotation.x) * 0.2;
+        head.rotation.z = Math.sin(t / 1100) * 0.05;
+      });
+      face = new THREE.Vector3(0, 0.76, 0.37);
+      top = new THREE.Vector3(0, 1.06, 0.27);
       break;
     }
     case "bog_toad": {
-      rig.add(at(piece(sphere(0.5, 22), main), 0, H * 0.45, 0, [W * 1.05, H * 0.85, W * 0.95]));
-      rig.add(at(piece(sphere(0.5, 14), toon("#d9d2a0")), 0, H * 0.32, W * 0.18, [W * 0.75, H * 0.55, W * 0.6]));
-      // the wide mouth
-      jaw = at(piece(torus(W * 0.3, W * 0.03, Math.PI), toon("#3a2a2a"), { outline: false }), 0, H * 0.52, W * 0.42);
+      // squat and wide, eyes up on two bumps, a big smile
+      u = W;
+      g.add(at(blob(sphere(0.5, 30), main), 0, 0.36, 0, [1, 0.72, 0.92]));
+      g.add(at(blob(sphere(0.5, 20), own("#efe9bd")), 0, 0.28, 0.14, [0.76, 0.5, 0.66]));
+      jaw = at(blob(torus(0.2, 0.014, Math.PI), flat("#5a3a3a"), false), 0, 0.44, 0.455);
       jaw.rotation.z = Math.PI;
-      rig.add(jaw);
-      // spots
+      g.add(jaw);
       for (const [x, y, z] of [
-        [-0.3, 0.75, -0.1],
-        [0.28, 0.7, 0.05],
-        [0.05, 0.85, -0.25],
+        [-0.3, 0.6, -0.12],
+        [0.3, 0.57, -0.02],
+        [0.04, 0.66, -0.26],
       ])
-        rig.add(at(piece(sphere(0.5, 8), dark, { outline: false }), x * W, y * H, z * W, W * 0.14));
+        g.add(at(blob(sphere(0.5, 10), dark, false), x, y, z, [0.15, 0.08, 0.15]));
       for (const x of [-1, 1]) {
-        const leg = at(piece(sphere(0.5, 10), dark), x * W * 0.45, H * 0.1, W * 0.1, [W * 0.3, H * 0.2, W * 0.45]);
+        g.add(at(blob(sphere(0.5, 18), main), x * 0.24, 0.66, 0.14, 0.32)); // eye bumps
+        const leg = at(blob(sphere(0.5, 14), dark), x * 0.44, 0.1, -0.08, [0.32, 0.2, 0.46]);
         legs.push(leg);
-        rig.add(leg);
+        g.add(leg);
+        g.add(at(blob(sphere(0.5, 12), dark), x * 0.3, 0.06, 0.34, [0.2, 0.12, 0.22]));
       }
-      face = new THREE.Vector3(0, H * 0.9, W * 0.25);
-      top = new THREE.Vector3(0, H * 0.95, -W * 0.05);
+      addEyes(g, 0.2, 0.25, 0.68, 0.27, "#c98a2b");
+      addBlush(g, 0.12, 0.37, 0.4, 0.3, 0.85);
+      face = new THREE.Vector3(0, 0.68, 0.27);
+      top = new THREE.Vector3(0, 0.74, -0.05);
       break;
     }
     case "thorn_wolf": {
-      rig.add(at(piece(capsule(H * 0.3, W * 0.55), main), 0, H * 0.62, -W * 0.05, [1, 1, 1]).rotateX(Math.PI / 2));
+      // a wolf pup: big head, fluffy cheeks and tail, red eyes under a frown
+      u = H;
+      g.add(at(blob(sphere(0.5, 28), main), 0, 0.42, -0.2, [0.62, 0.6, 0.85]));
+      g.add(at(blob(sphere(0.5, 18), light), 0, 0.4, 0.12, [0.45, 0.45, 0.35])); // chest fluff
       const head = new THREE.Group();
-      head.position.set(0, H * 0.85, W * 0.42);
-      rig.add(head);
-      head.add(at(piece(sphere(0.5, 18), main), 0, 0, 0, [H * 0.62, H * 0.56, H * 0.6]));
-      head.add(at(piece(sphere(0.5, 12), light), 0, -H * 0.08, H * 0.32, [H * 0.36, H * 0.26, H * 0.36]));
-      head.add(at(piece(sphere(0.5, 8), toon("#2a2238")), 0, -H * 0.02, H * 0.5, H * 0.1));
-      for (const x of [-1, 1]) head.add(at(piece(cone(H * 0.11, H * 0.3, 6), dark), x * H * 0.17, H * 0.3, -H * 0.04).rotateZ(-x * 0.2));
-      // red eyes
-      for (const x of [-1, 1]) head.add(at(piece(sphere(0.5, 8), toon("#e03c3c", { emissive: "#ff3030", emissiveIntensity: 0.5 }), { outline: false }), x * H * 0.15, H * 0.06, H * 0.26, [H * 0.1, H * 0.12, H * 0.05]));
-      rig.add(at(piece(cone(H * 0.12, W * 0.38, 8), dark), 0, H * 0.75, -W * 0.55).rotateX(-1.1));
+      head.position.set(0, 0.8, 0.3);
+      g.add(head);
+      head.add(at(blob(sphere(0.5, 30), main), 0, 0, 0, [0.82, 0.72, 0.74]));
+      for (const x of [-1, 1]) {
+        head.add(at(blob(sphere(0.5, 14), light), x * 0.3, -0.12, 0.08, [0.3, 0.26, 0.3])); // cheek fluff
+        const ear = at(blob(cone(0.15, 0.32, 16), dark), x * 0.25, 0.36, -0.02);
+        ear.rotation.z = -x * 0.28;
+        ear.add(at(blob(cone(0.09, 0.22, 12), soft("#ff9db5"), false), 0, -0.02, 0.05));
+        head.add(ear);
+        head.add(at(brow(0.16, x), x * 0.17, 0.165, 0.335));
+      }
+      head.add(at(blob(sphere(0.5, 16), light), 0, -0.13, 0.3, [0.34, 0.24, 0.3])); // muzzle
+      head.add(at(blob(sphere(0.5, 10), flat("#3a2a3f")), 0, -0.07, 0.44, [0.1, 0.075, 0.07])); // nose
+      head.add(at(smile(0.05), 0, -0.17, 0.44));
+      addEyes(head, 0.17, 0.17, 0.03, 0.31, "#e0483c");
+      addBlush(head, 0.11, 0.3, -0.07, 0.25);
+      const tail = new THREE.Group();
+      tail.position.set(0, 0.5, -0.58);
+      const fluff = at(blob(sphere(0.5, 16), main), 0, 0.14, -0.14, [0.26, 0.3, 0.42]);
+      fluff.rotation.x = -0.6;
+      tail.add(fluff, at(blob(sphere(0.5, 12), light), 0, 0.27, -0.27, 0.18));
+      g.add(tail);
       for (const [x, z] of [
-        [-0.17, 0.25],
-        [0.17, 0.25],
-        [-0.17, -0.3],
-        [0.17, -0.3],
+        [-0.2, 0.12],
+        [0.2, 0.12],
+        [-0.2, -0.5],
+        [0.2, -0.5],
       ]) {
         const leg = new THREE.Group();
-        leg.position.set(x * W, H * 0.45, z * W);
-        leg.add(at(piece(capsule(H * 0.09, H * 0.32), dark), 0, -H * 0.23, 0));
+        leg.position.set(x, 0.3, z);
+        leg.add(at(blob(caps(0.1, 0.14), dark), 0, -0.14, 0));
+        leg.add(at(blob(sphere(0.5, 12), light), 0, -0.25, 0.03, [0.24, 0.14, 0.28]));
         legs.push(leg);
-        rig.add(leg);
+        g.add(leg);
       }
-      face = new THREE.Vector3(0, H * 0.95, W * 0.62);
-      top = new THREE.Vector3(0, H * 1.25, W * 0.42);
-      back = new THREE.Vector3(0, H * 0.92, -W * 0.05);
+      extras.push((t, pose) => {
+        tail.rotation.y = Math.sin(t / (pose === "windup" ? 60 : 170)) * 0.35;
+        head.rotation.z = Math.sin(t / 1300) * 0.04;
+      });
+      face = new THREE.Vector3(0, 0.83, 0.62);
+      top = new THREE.Vector3(0, 1.16, 0.3);
+      back = new THREE.Vector3(0, 0.7, -0.2);
+      sides = 0.31;
       break;
     }
     case "mire_bat": {
-      rig.add(at(piece(sphere(0.5, 20), main), 0, H * 0.6, 0, [W * 0.55, H * 0.85, W * 0.5]));
-      for (const x of [-1, 1]) rig.add(at(piece(cone(W * 0.08, H * 0.4, 6), dark), x * W * 0.14, H * 1.08, 0).rotateZ(-x * 0.2));
+      // a round little bat with big ears and two tiny fangs
+      u = H * 1.3;
+      g.add(at(blob(sphere(0.5, 28), main), 0, 0.5, 0, [0.72, 0.74, 0.66]));
+      g.add(at(blob(sphere(0.5, 16), light), 0, 0.42, 0.17, [0.42, 0.4, 0.34]));
+      for (const x of [-1, 1]) {
+        const ear = at(blob(cone(0.15, 0.34, 16), main), x * 0.22, 0.92, -0.02);
+        ear.rotation.z = -x * 0.35;
+        ear.add(at(blob(cone(0.09, 0.24, 12), soft("#ff9db5"), false), 0, -0.02, 0.05));
+        g.add(ear);
+        g.add(at(blob(cone(0.03, 0.09, 10), flat("#ffffff"), false), x * 0.06, 0.36, 0.3).rotateX(Math.PI));
+        g.add(at(blob(sphere(0.5, 10), dark), x * 0.11, 0.13, 0.04, 0.14));
+      }
+      const wingMat = own(lighten(color, -0.3), { double: true });
       const wing = (x: number) => {
-        const g = new THREE.Group();
-        g.position.set(x * W * 0.2, H * 0.65, 0);
-        const shape = new THREE.Shape();
-        shape.moveTo(0, 0);
-        shape.lineTo(0.9, 0.35);
-        shape.lineTo(0.75, -0.05);
-        shape.lineTo(0.55, 0.05);
-        shape.lineTo(0.35, -0.12);
-        shape.lineTo(0, -0.15);
-        const geo = cached("batwing", () => new THREE.ShapeGeometry(shape));
-        const m = piece(geo, own(lighten(color, -0.35)), { outline: false });
-        (m.material as THREE.MeshToonMaterial).side = THREE.DoubleSide;
-        m.scale.set(x * W * 0.9, H * 1.1, 1);
-        g.add(m);
-        rig.add(g);
-        return g;
+        const p = new THREE.Group();
+        p.position.set(x * 0.3, 0.56, -0.06);
+        const geo = cached("softwing", () => {
+          const s = new THREE.Shape();
+          s.moveTo(0, 0.08);
+          s.quadraticCurveTo(0.5, 0.58, 0.95, 0.42);
+          s.quadraticCurveTo(0.9, 0.18, 0.76, 0);
+          s.quadraticCurveTo(0.64, 0.14, 0.52, -0.08);
+          s.quadraticCurveTo(0.38, 0.06, 0.26, -0.15);
+          s.quadraticCurveTo(0.14, 0, 0, -0.2);
+          s.closePath();
+          return new THREE.ShapeGeometry(s, 10);
+        });
+        const m = blob(geo, wingMat);
+        m.scale.set(x * 0.95, 1, 1);
+        p.add(m);
+        g.add(p);
+        return p;
       };
       wingL = wing(1);
       wingR = wing(-1);
-      // fangs
-      for (const x of [-1, 1]) rig.add(at(piece(cone(W * 0.03, H * 0.12, 4), toon("#ffffff"), { outline: false }), x * W * 0.06, H * 0.38, W * 0.24).rotateX(Math.PI));
-      face = new THREE.Vector3(0, H * 0.72, W * 0.24);
-      top = new THREE.Vector3(0, H * 1.1, 0);
-      sides = W * 0.3;
+      addEyes(g, 0.19, 0.15, 0.55, 0.295, "#e0a52b");
+      addBlush(g, 0.11, 0.275, 0.44, 0.205, 0.9);
+      g.add(at(smile(0.045), 0, 0.43, 0.338));
+      face = new THREE.Vector3(0, 0.55, 0.3);
+      top = new THREE.Vector3(0, 0.88, 0);
+      sides = 0.3;
       break;
     }
     case "moss_golem": {
-      rig.add(at(piece(box(W * 0.82, H * 0.62, W * 0.7), main), 0, H * 0.52, 0));
-      rig.add(at(piece(box(W * 0.55, H * 0.32, W * 0.5), main), 0, H * 0.98, W * 0.04));
+      // a round stone giant with a big head, heavy fists and glowing eyes
+      u = W * 0.76;
+      g.add(at(blob(sphere(0.5, 28), main), 0, 0.4, 0, [0.8, 0.7, 0.7]));
+      g.add(at(blob(sphere(0.5, 12), light, false), -0.2, 0.5, 0.29, [0.22, 0.16, 0.1]));
+      g.add(at(blob(sphere(0.5, 12), light, false), 0.21, 0.31, 0.27, [0.16, 0.12, 0.08]));
+      g.add(at(blob(sphere(0.5, 30), main), 0, 0.88, 0.04, [0.74, 0.6, 0.66]));
       for (const x of [-1, 1]) {
         const arm = new THREE.Group();
-        arm.position.set(x * W * 0.52, H * 0.7, 0);
-        arm.add(at(piece(box(W * 0.24, H * 0.5, W * 0.26), dark), 0, -H * 0.18, 0));
+        arm.position.set(x * 0.48, 0.62, 0);
+        arm.add(at(blob(sphere(0.5, 16), main), 0, -0.2, 0, [0.28, 0.46, 0.3]));
+        arm.add(at(blob(sphere(0.5, 16), dark), 0, -0.44, 0.02, 0.3));
         legs.push(arm);
-        rig.add(arm);
-        rig.add(at(piece(box(W * 0.26, H * 0.24, W * 0.3), dark), x * W * 0.22, H * 0.12, 0));
+        g.add(arm);
+        g.add(at(blob(sphere(0.5, 14), dark), x * 0.2, 0.1, 0.03, [0.34, 0.22, 0.4]));
+        // glowing eyes
+        const e = new THREE.Group();
+        e.position.set(x * 0.15, 0.9, 0.345);
+        e.rotation.y = x * 0.3;
+        e.add(at(blob(sphere(0.5, 16), flat("#d6ff7a", 1, 1.25), false), 0, 0, 0, [0.12, 0.15, 0.05]));
+        e.add(at(blob(sphere(0.5, 8), flat("#ffffff"), false), -0.02, 0.035, 0.02, [0.04, 0.045, 0.02]));
+        eyes.push(e);
+        g.add(e);
       }
-      // glowing eyes
-      for (const x of [-1, 1]) rig.add(at(piece(sphere(0.5, 8), toon("#d6ff7a", { emissive: "#b8ff3a", emissiveIntensity: 1 }), { outline: false }), x * W * 0.12, H * 1.0, W * 0.3, [W * 0.1, H * 0.06, W * 0.04]));
-      face = new THREE.Vector3(0, H * 1.0, W * 0.3);
-      top = new THREE.Vector3(0, H * 1.15, 0);
-      back = new THREE.Vector3(0, H * 0.84, -W * 0.1);
+      addBlush(g, 0.1, 0.26, 0.82, 0.27, 0.8);
+      g.add(at(smile(0.05), 0, 0.78, 0.352));
+      face = new THREE.Vector3(0, 0.9, 0.36);
+      top = new THREE.Vector3(0, 1.17, 0.04);
+      back = new THREE.Vector3(0, 0.8, -0.3);
+      sides = 0.45;
       break;
     }
     case "mirefang": {
-      // a great swamp bulb on a thick stalk, with a fanged jaw
-      rig.add(at(piece(cyl(W * 0.16, W * 0.24, H * 0.4, 14), dark), 0, H * 0.2, 0));
-      rig.add(at(piece(sphere(0.5, 24), main), 0, H * 0.55, 0, [W * 0.8, H * 0.55, W * 0.75]));
+      // a great swamp bulb on a thick stalk, with a fanged jaw and golden eyes
+      u = H;
+      g.add(at(blob(cyl(0.15, 0.225, 0.4, 20), dark), 0, 0.2, 0));
+      g.add(at(blob(sphere(0.5, 36), main), 0, 0.58, 0, [0.8, 0.6, 0.74]));
+      for (const [x, y, z, s] of [
+        [-0.17, 0.83, 0.02, 0.15],
+        [0.19, 0.8, -0.1, 0.12],
+        [0.02, 0.85, -0.17, 0.1],
+        [-0.3, 0.68, -0.12, 0.1],
+      ])
+        g.add(at(blob(sphere(0.5, 10), light, false), x, y, z, [s, s * 0.5, s]));
+      const tooth = soft("#fff6e0", 0.35);
       jaw = new THREE.Group();
-      jaw.position.set(0, H * 0.5, W * 0.18);
-      jaw.add(at(piece(sphere(0.5, 18), dark), 0, -H * 0.05, W * 0.12, [W * 0.6, H * 0.22, W * 0.5]));
-      for (let i = -2; i <= 2; i++) jaw.add(at(piece(cone(W * 0.035, H * 0.1, 5), toon("#f4ead2")), i * W * 0.09, H * 0.06, W * 0.33));
-      rig.add(jaw);
-      for (let i = -2; i <= 2; i++) rig.add(at(piece(cone(W * 0.035, H * 0.1, 5), toon("#f4ead2")), i * W * 0.09, H * 0.5, W * 0.38).rotateX(Math.PI));
-      // leaves around the base
+      jaw.position.set(0, 0.5, 0.17);
+      jaw.add(at(blob(sphere(0.5, 22), dark), 0, -0.05, 0.11, [0.56, 0.22, 0.47]));
+      for (let i = -2; i <= 2; i++) jaw.add(at(blob(cone(0.034, 0.09, 12), tooth), i * 0.085, 0.06, 0.3 - Math.abs(i) * 0.02));
+      g.add(jaw);
+      for (let i = -2; i <= 2; i++) g.add(at(blob(cone(0.034, 0.09, 12), tooth), i * 0.085, 0.5, 0.35 - Math.abs(i) * 0.02).rotateX(Math.PI));
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2;
-        const leaf = at(piece(sphere(0.5, 10), own("#4f7a4a")), Math.sin(a) * W * 0.38, H * 0.06, Math.cos(a) * W * 0.38, [W * 0.28, H * 0.06, W * 0.5]);
+        const leaf = at(blob(sphere(0.5, 12), own("#5c9a56")), Math.sin(a) * 0.36, 0.06, Math.cos(a) * 0.36, [0.26, 0.06, 0.47]);
         leaf.rotation.y = a;
-        rig.add(leaf);
+        g.add(leaf);
       }
-      for (const x of [-1, 1]) rig.add(at(piece(sphere(0.5, 10), toon("#ffcf3d", { emissive: "#ffb000", emissiveIntensity: 0.8 }), { outline: false }), x * W * 0.16, H * 0.72, W * 0.31, [W * 0.09, H * 0.06, W * 0.04]));
-      face = new THREE.Vector3(0, H * 0.72, W * 0.34);
-      top = new THREE.Vector3(0, H * 0.82, 0);
+      addEyes(g, 0.17, 0.17, 0.72, 0.29, "#ffb000", -0.35);
+      for (const x of [-1, 1]) g.add(at(brow(0.17, x), x * 0.17, 0.835, 0.25));
+      addBlush(g, 0.1, 0.31, 0.63, 0.2, 0.9);
+      face = new THREE.Vector3(0, 0.72, 0.3);
+      top = new THREE.Vector3(0, 0.875, 0);
       break;
     }
     default:
-      rig.add(at(piece(sphere(0.5, 16), main), 0, H * 0.5, 0, [W, H, W]));
+      g.add(at(blob(sphere(0.5, 20), main), 0, 0.5 * (H / W), 0, [1, H / W, 1]));
+      addEyes(g, 0.18, 0.18, 0.5 * (H / W), 0.44, "#a8572f");
   }
+  g.scale.setScalar(u);
+  // feature spots, now in scene units
+  top.multiplyScalar(u);
+  back.multiplyScalar(u);
+  face.multiplyScalar(u);
+  sides *= u;
 
-  // cute eyes for the softer monsters
-  if (bodyId === "green_slime" || bodyId === "horned_rabbit" || bodyId === "mire_bat") {
-    const r = Math.min(W, H) * 0.09;
-    for (const x of [-1, 1]) rig.add(at(eye(r), face.x + x * W * 0.14, face.y, face.z));
-  }
-  if (bodyId === "bog_toad" || others.includes("bog_toad")) {
+  // a toad parent gives a mixed pet its eye bumps
+  if (bodyId !== "bog_toad" && others.includes("bog_toad")) {
     const r = W * 0.12;
     for (const x of [-1, 1]) {
-      const g = new THREE.Group();
-      g.position.set(x * W * 0.24, (bodyId === "bog_toad" ? face.y : top.y) + r * 0.3, bodyId === "bog_toad" ? face.z : face.z * 0.6);
-      g.add(piece(sphere(r, 14), bodyId === "bog_toad" ? main : toon(SPECIES_COLOR.bog_toad)));
-      g.add(at(eye(r * 0.55), 0, r * 0.1, r * 0.75));
-      rig.add(g);
+      const bump = new THREE.Group();
+      bump.position.set(x * W * 0.24, top.y - r * 0.4, face.z * 0.45);
+      bump.add(blob(sphere(r, 14), soft(SPECIES_COLOR.bog_toad)));
+      const e = softEye(r * 1.2, x, "#c98a2b");
+      e.position.set(0, r * 0.1, r * 0.75);
+      bump.add(e);
+      rig.add(bump);
     }
   }
+
+  // blinking; eyes narrow before a strike and close when it falls
+  extras.push((t, pose) => {
+    const sy = pose === "dead" || t % 3400 < 130 ? 0.12 : pose === "windup" ? 0.7 : 1;
+    for (const e of eyes) e.scale.y = sy;
+  });
 
   // the other parents' features
   const feats = new Set<Feature>([...(bodyId === "mirefang" ? (["crown"] as Feature[]) : []), ...others.map((o) => FEATURE_OF[o])]);
@@ -672,41 +912,50 @@ export function makeMonster(species: string): MonsterModel {
   if (bodyId === "thorn_wolf") feats.add("thorns");
   if (bodyId === "moss_golem") feats.add("moss");
   for (const f of feats) {
-    if (f === "horn") rig.add(at(piece(cone(W * 0.08, H * 0.5, 10), toon("#f4ead2")), top.x, top.y + H * 0.15, top.z + W * 0.05).rotateX(0.35));
+    if (f === "horn") {
+      const horn = softHorn(Math.max(H * 0.42, u * 0.34));
+      horn.position.copy(top);
+      horn.rotation.x = 0.55;
+      rig.add(horn);
+    }
     if (f === "thorns") {
-      for (let i = 0; i < 4; i++) rig.add(at(piece(cone(W * 0.05, H * 0.32, 6), toon("#5e9e4f")), back.x, back.y + H * 0.1, back.z + (i - 1.5) * W * 0.18).rotateX(-0.25));
+      for (let i = 0; i < 4; i++) rig.add(at(blob(cone(W * 0.055, H * 0.3, 12), soft("#6fbf5f")), back.x, back.y + H * 0.1, back.z + (i - 1.5) * W * 0.15).rotateX(-0.25));
     }
     if (f === "moss") {
       for (const [x, z, s] of [
-        [-0.2, 0.1, 0.3],
-        [0.18, -0.12, 0.36],
-        [0.02, 0.15, 0.24],
+        [-0.16, 0.08, 0.3],
+        [0.15, -0.1, 0.36],
+        [0.02, 0.13, 0.24],
       ])
-        rig.add(at(piece(sphere(0.5, 10), toon("#5fa85a")), top.x + x * W, top.y - H * 0.04, top.z + z * W, [W * s, H * 0.12, W * s]));
+        rig.add(at(blob(sphere(0.5, 14), soft("#6fc068")), top.x + x * W, top.y - H * 0.03, top.z + z * W, [W * s, H * 0.14, W * s]));
+      // a little sprout
+      rig.add(at(blob(sphere(0.5, 10), soft("#8fe07a")), top.x + W * 0.05, top.y + H * 0.1, top.z - W * 0.02, [W * 0.1, H * 0.12, W * 0.05]).rotateZ(0.5));
     }
     if (f === "crown") {
       const c = new THREE.Group();
       c.position.set(top.x, top.y + H * 0.02, top.z);
       const k = Math.max(W, 0.6);
-      c.add(at(piece(cyl(k * 0.25, k * 0.22, k * 0.1, 12), toon("#f5c542", { emissive: "#c99a10", emissiveIntensity: 0.3 })), 0, 0, 0));
+      const gold = soft("#f5c542", 0.45);
+      c.add(at(blob(cyl(k * 0.25, k * 0.22, k * 0.1, 20), gold), 0, 0, 0));
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2;
-        c.add(at(piece(cone(k * 0.06, k * 0.16, 6), toon("#f5c542")), Math.sin(a) * k * 0.22, k * 0.1, Math.cos(a) * k * 0.22));
+        c.add(at(blob(cone(k * 0.06, k * 0.16, 12), gold), Math.sin(a) * k * 0.22, k * 0.1, Math.cos(a) * k * 0.22));
+        c.add(at(blob(sphere(k * 0.035, 10), gold), Math.sin(a) * k * 0.22, k * 0.185, Math.cos(a) * k * 0.22));
       }
-      c.add(at(piece(sphere(k * 0.05, 8), toon("#d64b6b", { emissive: "#d64b6b", emissiveIntensity: 0.4 })), 0, k * 0.04, k * 0.24));
+      c.add(at(blob(sphere(k * 0.05, 12), soft("#e2607f", 0.6)), 0, k * 0.04, k * 0.24));
       rig.add(c);
     }
     if (f === "wings" && bodyId !== "mire_bat") {
       for (const x of [-1, 1]) {
-        const g = new THREE.Group();
-        g.position.set(x * sides * 0.7, back.y, back.z);
-        g.add(at(piece(sphere(0.5, 10), own(SPECIES_COLOR.mire_bat)), x * W * 0.25, 0, 0, [W * 0.5, H * 0.08, W * 0.3]));
-        rig.add(g);
-        if (x === 1) wingL = g;
-        else wingR = g;
+        const p = new THREE.Group();
+        p.position.set(x * sides * 0.7, back.y, back.z);
+        p.add(at(blob(sphere(0.5, 12), own(SPECIES_COLOR.mire_bat)), x * W * 0.25, 0, 0, [W * 0.5, H * 0.08, W * 0.3]));
+        rig.add(p);
+        if (x === 1) wingL = p;
+        else wingR = p;
       }
     }
-    if (f === "shine" && bodyId !== "green_slime") rig.add(at(piece(sphere(0.5, 12), toon("#bff5c4", { opacity: 0.55 }), { outline: false, shadow: false }), 0, top.y, top.z, [W * 0.5, H * 0.2, W * 0.5]));
+    if (f === "shine" && bodyId !== "green_slime") rig.add(at(blob(sphere(0.5, 12), flat("#bff5c4", 0.55), false), 0, top.y, top.z, [W * 0.5, H * 0.2, W * 0.5]));
   }
 
   const st = { lastT: -1, pose: "", since: 0, y: 0, sx: 1, sy: 1, rx: 0, z: 0, jaw: 0, leg: 0 };
@@ -806,6 +1055,7 @@ export function makeMonster(species: string): MonsterModel {
       rig.scale.set(st.sx, st.sy, st.sx);
       if (jaw) jaw.rotation.x = st.jaw;
       legs.forEach((l, i) => (l.rotation.x = st.leg * (i % 2 ? 1 : -1)));
+      for (const x of extras) x(t, pose);
     },
   };
   return model;
