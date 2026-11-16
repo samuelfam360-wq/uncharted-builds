@@ -7,7 +7,7 @@
 // paid for), rolls the rewards itself, and updates counters and unlocks.
 
 import { WEAPONS } from "./constants";
-import { critChance, damageFormula, hitChance, type Rng } from "./combat";
+import { critChance, damageFormula, hitChance, playerDamage, type Rng } from "./combat";
 import type { EnemyAttack } from "./data/world";
 import type { ActiveEffect, StatKey, StatusType, WeaponType } from "./types";
 
@@ -106,7 +106,7 @@ export function rollHit(rng: Rng, spec: AttackSpec, a: Attacker, target: Defende
   if (!spec.area && !mods.sure && rng() >= hitChance(a.stats.DEX, target.AGI, spec.hitBonus)) return { miss: true, crit: false, dmg: 0 };
   const crit = mods.crit || rng() < critChance(a.stats.DEX, spec.critBonus);
   const def = mods.ignoreDef ? 0 : (spec.element === "magic" ? target.INT : target.VIT) * (mods.defMult ?? 1);
-  const dmg = damageFormula(attackPower(spec, a, hpPct), spec.multiplier * (crit ? 1.5 : 1) * (mods.mult ?? 1), def, spec.piercing);
+  const dmg = playerDamage(attackPower(spec, a, hpPct), spec.multiplier * (crit ? 1.5 : 1) * (mods.mult ?? 1), def, spec.piercing);
   return { miss: false, crit, dmg };
 }
 

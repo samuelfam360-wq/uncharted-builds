@@ -246,9 +246,13 @@ describe("Primal Bond: the pet's ultimate", () => {
     // charge it and fire
     e.bossFight!.petHits = 50;
     run(700);
+    // the pet's own bites also chip the boss now (every landed hit does some damage), so measure from here
+    const before = boss.hp;
     e.press("skill0");
     run(16);
-    expect(boss.hp).toBe(boss.maxHp - Math.ceil(boss.maxHp / 2));
+    const dealt = before - boss.hp;
+    expect(dealt).toBeGreaterThanOrEqual(Math.ceil(boss.maxHp / 2));
+    expect(dealt).toBeLessThan(Math.ceil(boss.maxHp / 2) + 50);
     const pet = e.pets[0];
     expect(pet.giantUntil).toBeGreaterThan(e.now);
     expect(Math.abs(pet.x - boss.x)).toBeLessThan(200);

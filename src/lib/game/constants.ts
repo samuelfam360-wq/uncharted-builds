@@ -52,7 +52,7 @@ export const WEAPONS: Record<WeaponType, WeaponDef> = {
     type: "large_shield",
     name: "Wood Shield",
     ...wood,
-    attack: 3,
+    attack: 6,
     element: "physical",
     defenseBonus: 10,
     blurb: "+10 defense. Barely a weapon.",
@@ -67,12 +67,12 @@ export const WEAPONS: Record<WeaponType, WeaponDef> = {
     type: "strength_bracelet",
     name: "Wood Strength Bracelet",
     ...wood,
-    attack: 3,
+    attack: 6,
     element: "physical",
     fists: true,
     blurb: "Worn on the wrist. You still fight with your fists.",
   },
-  unarmed: { type: "unarmed", name: "Bare Fists", material: null, rarity: null, attack: 0, element: "physical", fists: true, blurb: "Nothing but you." },
+  unarmed: { type: "unarmed", name: "Bare Fists", material: null, rarity: null, attack: 5, element: "physical", fists: true, blurb: "Nothing but you." },
 };
 
 /** Horn Rabbit weapons: Special grade, one per character, made from the Horned Rabbit's horn. */
