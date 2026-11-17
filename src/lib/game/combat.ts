@@ -167,6 +167,20 @@ export function damageFormula(atk: number, multiplier: number, def: number, pier
   return Math.max(0, Math.round(atk * multiplier - def)) + Math.round(piercing);
 }
 
+/** A player's hit that lands always does at least this share of its attack power (and at least 1). */
+export const MIN_PLAYER_DAMAGE_SHARE = 0.25;
+
+/**
+ * Damage from a player's hit on a monster: the normal formula, but never less than a quarter of the
+ * attack power (and never 0), so every weapon can hurt every monster. Monster hits on players
+ * still use plain damageFormula, so high VIT can block them completely.
+ */
+export function playerDamage(atk: number, multiplier: number, def: number, piercing = 0) {
+  const base = damageFormula(atk, multiplier, def, piercing);
+  if (multiplier <= 0) return base;
+  return Math.max(base, Math.max(1, Math.ceil(atk * multiplier * MIN_PLAYER_DAMAGE_SHARE)));
+}
+
 interface AttackSpec {
   name: string;
   element: "physical" | "magic";
@@ -311,7 +325,7 @@ export function resolveTurn(
     if (crit) inc(deltas, "crits_landed");
     const mult = spec.multiplier * (crit ? 1.5 : 1);
     const def = spec.element === "magic" ? E.stats.INT : E.stats.VIT;
-    const dmg = damageFormula(atk, mult, def, spec.piercing);
+    const dmg = playerDamage(atk, mult, def, spec.piercing);
     inc(deltas, spec.element === "magic" ? "magic_damage_dealt" : "physical_damage_dealt", dmg);
     log(`${spec.name}${crit ? " (critical!)" : ""} deals ${dmg} damage to ${E.name}.`);
     if (dmg > 0) damageEnemy(dmg, true);
