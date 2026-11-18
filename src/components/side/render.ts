@@ -5,6 +5,8 @@ import { MONSTERS } from "@/lib/game/data/world";
 import { SIDE_MAPS, TILE, isLadder, isPlatform, isSolid, isSwamp, mapSize, tileAt, type BuildingDef, type SideMap, type SideMapId } from "@/lib/game/data/sidemaps";
 import { PLAYER_H, WEAPON_FEEL, type Engine, type Monster } from "./engine";
 import { drawHero, type Look, type Pose } from "./hero";
+import { CANVA_EARTH, drawCanvaBuilding, drawCanvaGroundTile, drawCanvaPlatformTile, drawCanvaHero, drawCanvaMonster, drawCanvaSky, hasCanvaHero, hasCanvaMonster, hasCanvaWorld } from "./canva";
+import type { ClassId } from "@/lib/game/types";
 import { MONSTER_LOOKS, OUTLINE, drawMonster, drawPet, petLookOf, ellipse, frame, makeCanvas, outlined, poly, roundRect, shade, tintedFrame } from "./sprites";
 
 type Ctx = CanvasRenderingContext2D;
@@ -29,8 +31,10 @@ export function mapLayers(id: SideMapId): Layers {
   const b = back.getContext("2d")!;
   const f = front.getContext("2d")!;
   const ground = groundRow(m);
+  // outdoors, the Canva art replaces the old ground, buildings and bushes (the sky has its own plants)
+  const canvaWorld = m.backdrop !== "cave" && hasCanvaWorld();
   for (const bd of m.buildings) drawBuilding(b, bd, ground * TILE);
-  for (const d of m.decor.filter((d) => !d.front && !d.frame.startsWith("torch"))) drawDecor(b, d.frame, d.x, d.row, d.scale ?? 1);
+  if (!canvaWorld) for (const d of m.decor.filter((d) => !d.front && !d.frame.startsWith("torch"))) drawDecor(b, d.frame, d.x, d.row, d.scale ?? 1);
   for (const s of m.signs) drawDecor(b, "sign", s.x, s.row, 1);
   const T = m.terrain;
   const cave = m.backdrop === "cave";
@@ -38,6 +42,7 @@ export function mapLayers(id: SideMapId): Layers {
   const redrawPlatform = (x: number, y: number) => {
     const l2 = isPlatform(tileAt(m, x - 1, y));
     const r2 = isPlatform(tileAt(m, x + 1, y));
+    if (canvaWorld) return drawCanvaPlatformTile(b, x, y, TILE, !l2, !r2);
     const name = l2 && r2 ? "horizontal_middle" : r2 ? "horizontal_left" : l2 ? "horizontal_right" : "cloud";
     b.drawImage(frame(`terrain_${T}_${name}`), x * TILE, y * TILE);
   };
@@ -53,7 +58,8 @@ export function mapLayers(id: SideMapId): Layers {
         if (!up) suffix = left && right ? "top" : right ? "top_left" : left ? "top_right" : "";
         else if (!down) suffix = left && right ? "bottom" : right ? "bottom_left" : left ? "bottom_right" : "center";
         else suffix = !left ? "left" : !right ? "right" : "center";
-        b.drawImage(frame(`terrain_${T}_block${suffix ? `_${suffix}` : ""}`), x * TILE, y * TILE);
+        if (canvaWorld) drawCanvaGroundTile(b, x, y, TILE, !up);
+        else b.drawImage(frame(`terrain_${T}_block${suffix ? `_${suffix}` : ""}`), x * TILE, y * TILE);
       } else if (isPlatform(c)) {
         redrawPlatform(x, y);
       } else if (isLadder(c)) {
@@ -72,7 +78,7 @@ export function mapLayers(id: SideMapId): Layers {
       }
     }
   }
-  for (const d of m.decor.filter((d) => d.front)) drawDecor(f, d.frame, d.x, d.row, d.scale ?? 1);
+  if (!canvaWorld) for (const d of m.decor.filter((d) => d.front)) drawDecor(f, d.frame, d.x, d.row, d.scale ?? 1);
   l = { back, front };
   layerCache.set(id, l);
   return l;
@@ -98,6 +104,10 @@ const BUILDING_STYLE: Record<BuildingDef["kind"], { wall: string; roof: string; 
 
 function drawBuilding(ctx: Ctx, b: BuildingDef, groundY: number) {
   const st = BUILDING_STYLE[b.kind];
+  if (hasCanvaWorld() && drawCanvaBuilding(ctx, b.kind, (b.x + b.w / 2) * TILE, groundY, (b.w + 0.6) * TILE)) {
+    if (b.kind !== "house") drawSign(ctx, b, groundY);
+    return;
+  }
   const x = b.x * TILE + 8;
   const w = b.w * TILE - 16;
   const wallH = (b.h - 1.2) * TILE;
@@ -142,24 +152,27 @@ function drawBuilding(ctx: Ctx, b: BuildingDef, groundY: number) {
     ctx.fillRect(cx - 18, winY + 13.5, 36, 3);
   }
   // hanging signs
-  if (b.kind !== "house") {
-    const sx = dx;
-    const sy = groundY - doorH - 44;
-    ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(sx - 20, sy - 14);
-    ctx.lineTo(sx - 20, sy);
-    ctx.moveTo(sx + 20, sy - 14);
-    ctx.lineTo(sx + 20, sy);
-    ctx.stroke();
-    outlined(ctx, roundRect(sx - 40, sy, 80, 32, 6), "#fbe7b5", 4);
-    ctx.fillStyle = OUTLINE;
-    ctx.font = "900 17px ui-rounded, system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(b.kind === "inn" ? "INN" : "WEAPONS", sx, sy + 17);
-  }
+  if (b.kind !== "house") drawSign(ctx, b, groundY);
+}
+
+/** The INN / WEAPONS board over the door. */
+function drawSign(ctx: Ctx, b: BuildingDef, groundY: number) {
+  const sx = b.doorX * TILE + TILE / 2;
+  const sy = groundY - 74 - 44;
+  ctx.strokeStyle = OUTLINE;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(sx - 20, sy - 14);
+  ctx.lineTo(sx - 20, sy);
+  ctx.moveTo(sx + 20, sy - 14);
+  ctx.lineTo(sx + 20, sy);
+  ctx.stroke();
+  outlined(ctx, roundRect(sx - 40, sy, 80, 32, 6), "#fbe7b5", 4);
+  ctx.fillStyle = OUTLINE;
+  ctx.font = "900 17px ui-rounded, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(b.kind === "inn" ? "INN" : "WEAPONS", sx, sy + 17);
 }
 
 // ---------- backgrounds ----------
@@ -179,6 +192,10 @@ function drawBackdrop(ctx: Ctx, m: SideMap, camX: number, camY: number, vw: numb
       ctx.drawImage(img, x, vh * 0.55 + Math.sin(i * 1.7) * 30 - camY * 0.1, 160, 160);
     }
     ctx.globalAlpha = 1;
+    return;
+  }
+  if (hasCanvaWorld()) {
+    drawCanvaSky(ctx, camX, vw, vh);
     return;
   }
   const g = ctx.createLinearGradient(0, 0, 0, vh);
@@ -235,6 +252,8 @@ export function updateCamera(cam: Camera, e: Engine, vwPx: number, vhPx: number,
 
 export interface DrawInfo {
   look: Look;
+  /** For the Canva hero pictures. */
+  classId?: ClassId;
   name: string;
   npcLooks: Record<string, Look>;
 }
@@ -257,7 +276,7 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
   // below the map (when the screen is taller than the map)
   const { w: mw, h: mh } = mapSize(m);
   if (cam.y + vh > mh) {
-    ctx.fillStyle = m.backdrop === "cave" ? "#2a2236" : "#c9855a";
+    ctx.fillStyle = m.backdrop === "cave" ? "#2a2236" : hasCanvaWorld() ? CANVA_EARTH : "#c9855a";
     ctx.fillRect(cam.x - 10, mh, vw + 20, cam.y + vh - mh + 10);
   }
 
@@ -312,7 +331,8 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
     ctx.save();
     ctx.scale(pt.facing * ps, ps);
     const pose = now - pt.struckAt < 240 ? "attack" : pt.moving ? (Math.floor(pt.walkT / 180) % 2 ? "walk1" : "walk0") : "rest";
-    drawPet(ctx, pt.species, pose, now);
+    if (hasCanvaMonster(pt.species)) drawCanvaMonster(ctx, pt.species, pose, now, look.body.h * 1.45);
+    else drawPet(ctx, pt.species, pose, now);
     ctx.restore();
     // a small heart: this one is yours
     const top = -look.body.h * ps - (look.flying ? 30 : 10);
@@ -477,7 +497,8 @@ function drawMonsterAt(ctx: Ctx, m: Monster, now: number) {
               ? "walk1"
               : "walk0"
             : "rest";
-  drawMonster(ctx, m.id, pose, now);
+  if (hasCanvaMonster(m.id)) drawCanvaMonster(ctx, m.id, pose, now + m.x * 7, look.body.h * 1.45);
+  else drawMonster(ctx, m.id, pose, now);
   ctx.restore();
   if (now < m.flashUntil) {
     ctx.globalAlpha = 0.5;
@@ -606,7 +627,9 @@ function drawPlayer(ctx: Ctx, e: Engine, info: DrawInfo) {
   }
   ctx.save();
   ctx.scale(p.facing, 1);
-  drawHero(ctx, info.look, { pose, t: p.onLadder ? p.walkT : pose === "walk" ? p.walkT : now, progress, weapon: e.weapon, horn: e.horn });
+  const heroT = p.onLadder ? p.walkT : pose === "walk" ? p.walkT : now;
+  if (hasCanvaHero(info.classId, e.weapon)) drawCanvaHero(ctx, info.classId!, pose, heroT, progress);
+  else drawHero(ctx, info.look, { pose, t: heroT, progress, weapon: e.weapon, horn: e.horn });
   ctx.restore();
   // Green Slime's Mercy: a wobbly coat of green slime over the whole body
   if (e.combat.passive.slime_mercy && !p.dead) {

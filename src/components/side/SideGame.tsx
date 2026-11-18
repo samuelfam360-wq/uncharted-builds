@@ -14,6 +14,7 @@ import { Engine, type CombatInfo, type Nearby, type Press } from "./engine";
 import { lookFor, type Look } from "./hero";
 import { bossOf, drawFrame, updateCamera, type Camera } from "./render";
 import { loadArt } from "./sprites";
+import { loadCanvaArt } from "./canva";
 import TouchControls, { type SkillButton } from "./TouchControls";
 import { HintStrip } from "@/components/world/HintStrip";
 import Portrait from "@/components/world/Portrait";
@@ -289,7 +290,7 @@ export default function SideGame({
 
   useEffect(() => {
     let cancelled = false;
-    loadArt()
+    Promise.all([loadArt(), loadCanvaArt()])
       .then(async () => {
         if (cancelled) return;
         const st = stateRef.current;
@@ -589,7 +590,7 @@ export default function SideGame({
       updateCamera(cam.current, e, canvas.width, canvas.height, first);
       first = false;
       const ctx = canvas.getContext("2d")!;
-      drawFrame(ctx, e, cam.current, canvas.width, canvas.height, { look, name: stateRef.current.player.name, npcLooks });
+      drawFrame(ctx, e, cam.current, canvas.width, canvas.height, { look, classId: stateRef.current.player.classId, name: stateRef.current.player.name, npcLooks });
       // send what happened every so often
       if (now - lastSync > 12000 || e.unsentHits > 80) {
         lastSync = now;
