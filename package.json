@@ -12,6 +12,7 @@
     "seed:sql": "tsx scripts/gen-seed.ts"
   },
   "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
     "@supabase/supabase-js": "^2.119.0",
     "@types/three": "^0.170.0",
     "next": "15.5.29",

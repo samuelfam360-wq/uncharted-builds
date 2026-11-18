@@ -12,7 +12,8 @@ import { MONSTERS } from "@/lib/game/data/world";
 import { TILE3, type Map3D } from "@/lib/game/data/maps3d";
 import type { Look } from "../side/hero";
 import { makeScarAura, makeSlimeCoat } from "./effects";
-import { glowPower, loadPack, makeRiggedHero, onPackReady, packReady } from "./rigged";
+import { glowPower, loadPack, onPackReady, packReady } from "./rigged";
+import { heroFor } from "./heroes";
 import { MONSTER_LOOKS } from "../side/sprites";
 import { WEAPON_FEEL, type Engine3D, type Monster, type PetUnit } from "./engine3d";
 import {
@@ -22,7 +23,6 @@ import {
   makeCrystal,
   makeFence,
   makeFlower,
-  makeHero,
   makeLamp,
   makeMonster,
   makeMushroom,
@@ -46,19 +46,31 @@ const PLAYER_H = 82;
 const toScene = (x: number, y: number, z: number, out = new THREE.Vector3()) => out.set(x * U, -y * U, z * U);
 
 /** Give a model materials of its own (so it can fade or tint) and return them. */
-/** The animated pack character when it has loaded, else the code-built one. */
-function heroFor(look: Look): HeroModel {
-  return makeRiggedHero(look) ?? makeHero(look);
-}
-
-function ownMaterials(root: THREE.Object3D): THREE.MeshToonMaterial[] {
-  const out: THREE.MeshToonMaterial[] = [];
-  const seen = new Map<THREE.Material, THREE.MeshToonMaterial>();
+function ownMaterials(root: THREE.Object3D): THREE.Material[] {
+  const out: THREE.Material[] = [];
+  const seen = new Map<THREE.Material, THREE.Material>();
+  // a hero that already owns its materials (anime, Brick) hands them over as they are
+  const owns = !!root.userData.ownsMaterials;
   root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh || m.userData.outline) return;
     const mat = m.material as THREE.MeshToonMaterial;
-    if (!(mat instanceof THREE.MeshToonMaterial)) return;
+    if (Array.isArray(m.material)) {
+      if (owns)
+        for (const x of m.material as THREE.Material[])
+          if (!seen.has(x)) {
+            seen.set(x, x);
+            out.push(x);
+          }
+      return;
+    }
+    if (!(mat instanceof THREE.MeshToonMaterial)) {
+      if (owns && !seen.has(mat) && !(mat as THREE.MeshBasicMaterial).isMeshBasicMaterial) {
+        seen.set(mat, mat);
+        out.push(mat);
+      }
+      return;
+    }
     let c = seen.get(mat);
     if (!c) {
       c = mat.clone();
@@ -110,13 +122,14 @@ export class World3D {
   private glow: THREE.PointLight;
   private sky: THREE.Mesh;
   private hero: HeroModel | null = null;
-  private heroMats: THREE.MeshToonMaterial[] = [];
+  private heroMats: THREE.Material[] = [];
+  private heroVersion = 0;
   private heroShadow: THREE.Mesh;
   private heroLook = "";
   private npcs: { model: HeroModel; x: number; z: number; id: string }[] = [];
   private monsters = new Map<number, MonsterView>();
   private pets = new Map<string, MonsterView>();
-  private clones: { model: HeroModel; mats: THREE.MeshToonMaterial[] }[] = [];
+  private clones: { model: HeroModel; mats: THREE.Material[] }[] = [];
   private shots: Record<string, THREE.Mesh[]> = {};
   private fxPool: Record<string, { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }[]> = {};
   private gates: { x: number; mesh: THREE.Object3D }[] = [];
@@ -654,8 +667,12 @@ export class World3D {
   private syncHero(e: Engine3D, info: DrawInfo, now: number) {
     const key = JSON.stringify(info.look) + packReady();
     if (!this.hero || key !== this.heroLook) {
-      if (this.hero) this.dyn.remove(this.hero.root);
+      if (this.hero) {
+        this.dyn.remove(this.hero.root);
+        this.hero.dispose?.();
+      }
       this.hero = heroFor(info.look);
+      this.heroVersion = this.hero.version ?? 0;
       // the light you carry takes your glow colour
       this.glow.color.set(info.look.glow ?? "#ffcf8a").lerp(new THREE.Color("#ffffff"), 0.8);
       // a neon ring on the ground under you, in your glow colour
@@ -670,6 +687,12 @@ export class World3D {
       this.heroMats = ownMaterials(this.hero.root);
       this.heroLook = key;
       this.dyn.add(this.hero.root);
+      this.slimeCoat = null;
+    }
+    // an anime hero swapped in its model once it loaded: take over its materials again
+    if ((this.hero.version ?? 0) !== this.heroVersion) {
+      this.heroVersion = this.hero.version ?? 0;
+      this.heroMats = ownMaterials(this.hero.root);
       this.slimeCoat = null;
     }
     // Green Slime's Mercy: a see-through slime coat over the whole body

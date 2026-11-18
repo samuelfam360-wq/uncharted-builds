@@ -141,6 +141,10 @@ export interface HeroModel {
   horn?: boolean;
   animate(pose: HeroPose, t: number, walkT: number, progress: number): void;
   weapon: WeaponType | null;
+  /** Goes up when the hero swaps its model (an anime hero once its file has loaded). */
+  version?: number;
+  /** Frees the GPU memory of a hero that is thrown away. */
+  dispose?(): void;
 }
 
 const lighten = (hex: string, k: number) => "#" + new THREE.Color(hex).lerp(new THREE.Color(k > 0 ? "#ffffff" : "#000000"), Math.abs(k)).getHexString();
@@ -250,76 +254,93 @@ export function makeHero(L: Look): HeroModel {
       if (w.left) handL.add(w.left);
     },
     animate(pose, t, walkT, progress) {
-      body.position.set(0, 0, 0);
-      body.rotation.set(0, 0, 0);
-      head.rotation.set(0, 0, 0);
-      legL.rotation.set(0, 0, 0);
-      legR.rotation.set(0, 0, 0);
-      armL.rotation.set(0, 0, 0.12);
-      armR.rotation.set(0, 0, -0.12);
-      const style = model.weapon ? WEAPON_LOOK[model.weapon] : "punch";
-      if (pose === "idle") {
-        body.position.y = Math.sin(t / 380) * 0.012;
-        armL.rotation.z = 0.12 + Math.sin(t / 380) * 0.03;
-        armR.rotation.z = -0.12 - Math.sin(t / 380) * 0.03;
-      } else if (pose === "walk") {
-        const s = Math.sin(walkT / 95);
-        legL.rotation.x = s * 0.7;
-        legR.rotation.x = -s * 0.7;
-        armL.rotation.x = -s * 0.6;
-        armR.rotation.x = s * 0.6;
-        body.position.y = Math.abs(Math.cos(walkT / 95)) * 0.04;
-        body.rotation.x = 0.08;
-      } else if (pose === "jump" || pose === "fall") {
-        legL.rotation.x = -0.6;
-        legR.rotation.x = 0.3;
-        armL.rotation.set(-0.4, 0, 0.8);
-        armR.rotation.set(-0.4, 0, -0.8);
-      } else if (pose === "attack") {
-        const p = Math.min(1, progress);
-        if (style === "swing") {
-          // big overhead slash
-          armR.rotation.x = -2.6 + p * 3.4;
-          armR.rotation.z = -0.3;
-          body.rotation.y = 0.4 - p * 0.8;
-        } else if (style === "thrust") {
-          armR.rotation.x = -1.5;
-          body.position.z = Math.sin(p * Math.PI) * 0.12;
-          armR.position.z = Math.sin(p * Math.PI) * 0.2;
-        } else if (style === "shoot") {
-          armR.rotation.x = -1.5;
-          armL.rotation.x = model.weapon === "bow" ? -1.5 : 0;
-          body.rotation.x = -Math.sin(p * Math.PI) * 0.08;
-        } else {
-          // a punch, alternating hands
-          const left = Math.floor(t / 300) % 2 === 0;
-          (left ? armL : armR).rotation.x = -1.6 * Math.sin(p * Math.PI);
-          body.rotation.y = (left ? -0.25 : 0.25) * Math.sin(p * Math.PI);
-        }
-        legL.rotation.x = 0.3;
-        legR.rotation.x = -0.25;
-      } else if (pose === "cast") {
-        armL.rotation.set(-2.6, 0, 0.3);
-        armR.rotation.set(-2.6, 0, -0.3);
-        body.position.y = 0.04;
-      } else if (pose === "block") {
-        armL.rotation.set(-1.4, 0, -0.5);
-        armR.rotation.set(-1.2, 0, 0.6);
-        body.rotation.x = 0.12;
-        legL.rotation.x = 0.35;
-        legR.rotation.x = -0.35;
-      } else if (pose === "hurt") {
-        body.rotation.x = -0.3;
-        armL.rotation.z = 0.8;
-        armR.rotation.z = -0.8;
-      } else if (pose === "dead") {
-        body.rotation.x = -Math.PI / 2;
-        body.position.y = 0.16;
-        body.position.z = -0.5;
-      }
+      animateRig({ body, head, legL, legR, armL, armR }, model.weapon, pose, t, walkT, progress);
     },
   };
   return model;
+}
+
+/** The moving parts of a hero built from pieces (the code-built and Brick heroes). */
+export interface HeroRig {
+  body: THREE.Object3D;
+  head: THREE.Object3D;
+  legL: THREE.Object3D;
+  legR: THREE.Object3D;
+  armL: THREE.Object3D;
+  armR: THREE.Object3D;
+}
+
+/** Poses a hero built from pieces: walking, attacking with each weapon style, blocking and so on. */
+export function animateRig(rig: HeroRig, weapon: WeaponType | null, pose: HeroPose, t: number, walkT: number, progress: number) {
+  const { body, head, legL, legR, armL, armR } = rig;
+  body.position.set(0, 0, 0);
+  body.rotation.set(0, 0, 0);
+  head.rotation.set(0, 0, 0);
+  legL.rotation.set(0, 0, 0);
+  legR.rotation.set(0, 0, 0);
+  armL.rotation.set(0, 0, 0.12);
+  armR.rotation.set(0, 0, -0.12);
+  armR.position.z = 0;
+  const style = weapon ? WEAPON_LOOK[weapon] : "punch";
+  if (pose === "idle") {
+    body.position.y = Math.sin(t / 380) * 0.012;
+    armL.rotation.z = 0.12 + Math.sin(t / 380) * 0.03;
+    armR.rotation.z = -0.12 - Math.sin(t / 380) * 0.03;
+  } else if (pose === "walk") {
+    const s = Math.sin(walkT / 95);
+    legL.rotation.x = s * 0.7;
+    legR.rotation.x = -s * 0.7;
+    armL.rotation.x = -s * 0.6;
+    armR.rotation.x = s * 0.6;
+    body.position.y = Math.abs(Math.cos(walkT / 95)) * 0.04;
+    body.rotation.x = 0.08;
+  } else if (pose === "jump" || pose === "fall") {
+    legL.rotation.x = -0.6;
+    legR.rotation.x = 0.3;
+    armL.rotation.set(-0.4, 0, 0.8);
+    armR.rotation.set(-0.4, 0, -0.8);
+  } else if (pose === "attack") {
+    const p = Math.min(1, progress);
+    if (style === "swing") {
+      // big overhead slash
+      armR.rotation.x = -2.6 + p * 3.4;
+      armR.rotation.z = -0.3;
+      body.rotation.y = 0.4 - p * 0.8;
+    } else if (style === "thrust") {
+      armR.rotation.x = -1.5;
+      body.position.z = Math.sin(p * Math.PI) * 0.12;
+      armR.position.z = Math.sin(p * Math.PI) * 0.2;
+    } else if (style === "shoot") {
+      armR.rotation.x = -1.5;
+      armL.rotation.x = weapon === "bow" ? -1.5 : 0;
+      body.rotation.x = -Math.sin(p * Math.PI) * 0.08;
+    } else {
+      // a punch, alternating hands
+      const left = Math.floor(t / 300) % 2 === 0;
+      (left ? armL : armR).rotation.x = -1.6 * Math.sin(p * Math.PI);
+      body.rotation.y = (left ? -0.25 : 0.25) * Math.sin(p * Math.PI);
+    }
+    legL.rotation.x = 0.3;
+    legR.rotation.x = -0.25;
+  } else if (pose === "cast") {
+    armL.rotation.set(-2.6, 0, 0.3);
+    armR.rotation.set(-2.6, 0, -0.3);
+    body.position.y = 0.04;
+  } else if (pose === "block") {
+    armL.rotation.set(-1.4, 0, -0.5);
+    armR.rotation.set(-1.2, 0, 0.6);
+    body.rotation.x = 0.12;
+    legL.rotation.x = 0.35;
+    legR.rotation.x = -0.35;
+  } else if (pose === "hurt") {
+    body.rotation.x = -0.3;
+    armL.rotation.z = 0.8;
+    armR.rotation.z = -0.8;
+  } else if (pose === "dead") {
+    body.rotation.x = -Math.PI / 2;
+    body.position.y = 0.16;
+    body.position.z = -0.5;
+  }
 }
 
 /** How each weapon is held and used. */

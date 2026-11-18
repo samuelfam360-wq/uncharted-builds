@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { BASE_HP, BASE_MP, HP_PER_POINT, MP_PER_POINT, STAT_INFO, WEAPONS } from "@/lib/game/constants";
-import { APPEARANCE_OPTIONS, BODY_OPTIONS, CLASS_BODY, CLASS_GLOW, CLASSES, DEFAULT_APPEARANCE, GLOW } from "@/lib/game/data/classes";
+import { APPEARANCE_OPTIONS, BODY_OPTIONS, CLASS_BODY, CLASS_GLOW, CLASSES, DEFAULT_APPEARANCE, GLOW, STYLE_OPTIONS } from "@/lib/game/data/classes";
 import { CLASS_IDS, STAT_KEYS, type Appearance, type ClassId, type StatKey } from "@/lib/game/types";
 import { api } from "@/lib/client";
 import { EYES, HAIR, SKIN, lookFor } from "./side/hero";
@@ -24,6 +24,14 @@ const COLOUR_PICKS: { key: "skinTone" | "hairColor" | "eyeColor" | "glow"; colou
 ];
 /** Looks that only show in the 2D view. */
 const SHAPE_PICKS = ["gender", "hairStyle", "build"] as const;
+
+/** What each body style looks like, in a few words. */
+const STYLE_HINT: Record<(typeof STYLE_OPTIONS)[number], string> = {
+  Default: "Anime",
+  Chibi: "Small and cute",
+  Block: "Blocky adventurer",
+  Brick: "Toy bricks",
+};
 
 const NO_POINTS: Record<StatKey, number> = { HP: 0, MP: 0, STR: 0, VIT: 0, AGI: 0, DEX: 0, INT: 0 };
 const STARTING_TOTAL = 10;
@@ -90,18 +98,34 @@ export default function CreateCharacter() {
           <div className="label mb-2">Your look</div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <AvatarPreview look={hero} weapon={cls.weapon} />
-              <div className="mt-2 flex items-center justify-center gap-3">
-                <button type="button" className="btn px-3 py-1" onClick={() => turnBody(-1)} aria-label="Previous body">
-                  ◀
-                </button>
-                <span className="w-28 text-center text-sm font-semibold" data-testid="body-name">
-                  {BODY_OPTIONS[bodyAt]}
-                </span>
-                <button type="button" className="btn px-3 py-1" onClick={() => turnBody(1)} aria-label="Next body">
-                  ▶
-                </button>
+              <div className="mb-2 grid grid-cols-4 gap-1.5" role="group" aria-label="Body style">
+                {STYLE_OPTIONS.map((s) => (
+                  <button
+                    type="button"
+                    key={s}
+                    aria-pressed={(look.style ?? "Default") === s}
+                    onClick={() => setLook((l) => ({ ...l, style: s }))}
+                    className={`rounded-lg border px-1 py-1.5 text-center transition ${(look.style ?? "Default") === s ? "border-gold bg-gold/10" : "border-line bg-panel-2 hover:border-moss"}`}
+                  >
+                    <div className="text-sm font-semibold">{s}</div>
+                    <div className="text-[10px] leading-tight text-muted">{STYLE_HINT[s]}</div>
+                  </button>
+                ))}
               </div>
+              <AvatarPreview look={hero} weapon={cls.weapon} />
+              {look.style === "Block" && (
+                <div className="mt-2 flex items-center justify-center gap-3">
+                  <button type="button" className="btn px-3 py-1" onClick={() => turnBody(-1)} aria-label="Previous body">
+                    ◀
+                  </button>
+                  <span className="w-28 text-center text-sm font-semibold" data-testid="body-name">
+                    {BODY_OPTIONS[bodyAt]}
+                  </span>
+                  <button type="button" className="btn px-3 py-1" onClick={() => turnBody(1)} aria-label="Next body">
+                    ▶
+                  </button>
+                </div>
+              )}
               <p className="mt-1 text-center text-xs text-muted">Drag your hero to turn it.</p>
             </div>
             <div className="space-y-3">

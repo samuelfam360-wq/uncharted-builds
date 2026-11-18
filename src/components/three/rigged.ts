@@ -91,6 +91,10 @@ export function loadPack(base = "/models/kaykit/"): Promise<Pack | null> {
 export function packReady() {
   return !!pack;
 }
+/** The pack's moves and a body in its rest pose (other characters borrow the moves). */
+export function packMoves(): { clips: Record<string, THREE.AnimationClip>; rest: THREE.Object3D } | null {
+  return pack ? { clips: pack.clips, rest: pack.bodies.Rogue.scene } : null;
+}
 export function onPackReady(f: () => void) {
   listeners.add(f);
   return () => listeners.delete(f);
@@ -359,7 +363,7 @@ function outline() {
 
 // ---------- which move to play ----------
 
-function attackClip(weapon: WeaponType, alt: boolean): string {
+export function attackClip(weapon: WeaponType, alt: boolean): string {
   switch (weapon) {
     case "sword":
       return alt ? "1H_Melee_Attack_Chop" : "1H_Melee_Attack_Slice_Diagonal";
