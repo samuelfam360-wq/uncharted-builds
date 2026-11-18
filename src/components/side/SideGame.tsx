@@ -16,6 +16,7 @@ import { bossOf, drawFrame, updateCamera, type Camera } from "./render";
 import { loadArt } from "./sprites";
 import TouchControls, { type SkillButton } from "./TouchControls";
 import { HintStrip } from "@/components/world/HintStrip";
+import Portrait from "@/components/world/Portrait";
 
 type GameState = Awaited<ReturnType<typeof getState>>;
 
@@ -666,11 +667,14 @@ export default function SideGame({
       {/* left column: name, level, HP / MP / EXP, then hidden-skill hints, the dungeon room and what just happened */}
       <div className="pointer-events-none absolute left-2 top-2 flex w-[min(300px,40vw)] flex-col">
         <div className="rounded-xl border-[3px] border-[#2f2a3b] bg-[#fdf6e3]/95 px-2 py-1 text-[#2f2a3b] shadow-[0_3px_0_#2f2a3b]">
-          <div className="flex items-baseline justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+          <Portrait classId={player.classId} variant="face" className="h-9 w-9 shrink-0 rounded-full border-2 border-[#2f2a3b] sm:h-10 sm:w-10" />
+          <div className="flex min-w-0 flex-1 items-baseline justify-between gap-2">
             <span className="truncate text-xs font-black sm:text-sm">{player.name}</span>
             <span className="shrink-0 text-[10px] font-bold sm:text-[11px]">
               Lv {player.level} · {state.className} · {player.gold}g
             </span>
+          </div>
           </div>
           {[
             { label: "HP", pct: hpPct, color: "#e0533d", text: `${Math.max(0, Math.round(p?.hp ?? 0))}/${p?.maxHp ?? 0}` },

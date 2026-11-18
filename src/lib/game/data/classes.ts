@@ -128,3 +128,6 @@ export function cleanAppearance(input: unknown): Appearance {
 export function describeAppearance(a: Appearance): string {
   return `${a.gender}, ${a.build.toLowerCase()} build, ${a.hairColor.toLowerCase()} ${a.hairStyle.toLowerCase()} hair, ${a.eyeColor.toLowerCase()} eyes`;
 }
+
+/** Each class's chibi portrait (made in Canva), shown on the 2D screens. Unknown classes fall back to Free Class. */
+export const classPortrait = (id: ClassId) => `/art/portraits/${id in CLASSES ? id : "free"}.webp`;
