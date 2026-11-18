@@ -11,8 +11,9 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import type { WeaponType } from "@/lib/game/types";
 import type { Look } from "../side/hero";
-import { makeHero, type HeroModel } from "./models";
-import { glowPower, loadPack, makeRiggedHero, onPackReady } from "./rigged";
+import type { HeroModel } from "./models";
+import { heroFor } from "./heroes";
+import { glowPower, loadPack, onPackReady } from "./rigged";
 
 interface View {
   setHero(look: Look, weapon: WeaponType): void;
@@ -56,8 +57,11 @@ function makeView(canvas: HTMLCanvasElement): View {
 
   const build = () => {
     if (!last) return;
-    if (hero) scene.remove(hero.root);
-    hero = makeRiggedHero(last.look) ?? makeHero(last.look);
+    if (hero) {
+      scene.remove(hero.root);
+      hero.dispose?.();
+    }
+    hero = heroFor(last.look);
     hero.set(last.weapon);
     scene.add(hero.root);
     const glow = last.look.glow ?? "#ffffff";
@@ -121,6 +125,7 @@ function makeView(canvas: HTMLCanvasElement): View {
     dispose() {
       cancelAnimationFrame(raf);
       offPack();
+      hero?.dispose?.();
       ro.disconnect();
       canvas.removeEventListener("pointerdown", down);
       canvas.removeEventListener("pointermove", move);

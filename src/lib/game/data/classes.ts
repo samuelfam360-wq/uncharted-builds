@@ -34,7 +34,14 @@ export const APPEARANCE_OPTIONS: Record<keyof Appearance, { label: string; optio
   build: { label: "Body build", options: ["Slim", "Average", "Strong"] },
   body: { label: "3D body", options: ["Knight", "Barbarian", "Mage", "Rogue", "Hooded Rogue"] },
   glow: { label: "Glow colour", options: ["Cyan", "Blue", "Red", "Orange", "Yellow", "White Gold", "Purple", "Mint", "Pink", "Green", "Lime", "White"] },
+  style: { label: "Body style", options: ["Default", "Chibi", "Block", "Brick"] },
 };
+
+/** The body styles a player picks from when making their avatar. */
+export const STYLE_OPTIONS = ["Default", "Chibi", "Block", "Brick"] as const;
+export type BodyStyle = (typeof STYLE_OPTIONS)[number];
+/** Heroes saved before body styles existed keep the look they had: Block. */
+export const OLD_STYLE: BodyStyle = "Block";
 
 /** The neon glow colours of the 3D heroes. */
 export const GLOW: Record<string, string> = {
@@ -98,6 +105,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   build: "Average",
   body: "Knight",
   glow: "Cyan",
+  style: "Default",
 };
 
 /** Accept only known options; anything missing or unknown falls back to the default. */
@@ -112,6 +120,8 @@ export function cleanAppearance(input: unknown): Appearance {
   if (!(typeof src.body === "string" && APPEARANCE_OPTIONS.body.options.includes(src.body))) delete out.body;
   // no glow picked: the 3D view uses the class colour
   if (!(typeof src.glow === "string" && APPEARANCE_OPTIONS.glow.options.includes(src.glow))) delete out.glow;
+  // no style picked (made before styles existed): keeps the Block look it always had
+  if (!(typeof src.style === "string" && APPEARANCE_OPTIONS.style.options.includes(src.style))) delete out.style;
   return out;
 }
 

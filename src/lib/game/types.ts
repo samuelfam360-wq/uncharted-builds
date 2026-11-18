@@ -50,6 +50,8 @@ export interface Appearance {
   body?: string;
   /** The colour of the neon glow on the hero in 3D. Without one, the class colour is used. */
   glow?: string;
+  /** The body style in 3D: Default (anime), Chibi, Block or Brick. Players made before this existed are Block. */
+  style?: string;
 }
 
 export const STATUS_TYPES = [

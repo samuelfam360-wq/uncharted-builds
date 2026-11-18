@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { derive, freeStartingPoints, newCharacter } from "../src/lib/game/character";
 import { resolveTurn, startBattle, type Rng } from "../src/lib/game/combat";
 import { WEAPONS } from "../src/lib/game/constants";
-import { APPEARANCE_KEYS, APPEARANCE_OPTIONS, BODY_OPTIONS, CLASS_BODY, CLASS_GLOW, CLASSES, DEFAULT_APPEARANCE, GLOW } from "../src/lib/game/data/classes";
+import { APPEARANCE_KEYS, APPEARANCE_OPTIONS, BODY_OPTIONS, CLASS_BODY, CLASS_GLOW, CLASSES, DEFAULT_APPEARANCE, GLOW, STYLE_OPTIONS } from "../src/lib/game/data/classes";
 import { lookFor } from "../src/components/side/hero";
 import { MONSTERS } from "../src/lib/game/data/world";
 import { MemoryStore } from "../src/lib/store/memory";
@@ -88,9 +88,10 @@ describe("appearance", () => {
       { name: "Look", classId: "mage", appearance: { gender: "Female", hairColor: "Red", eyeColor: "<script>", build: 5 }, stats: {} },
       "p",
     );
-    const { body: _unpicked, glow: _noGlow, ...rest } = DEFAULT_APPEARANCE;
+    const { body: _unpicked, glow: _noGlow, style: _noStyle, ...rest } = DEFAULT_APPEARANCE;
     void _unpicked;
     void _noGlow;
+    void _noStyle;
     // no 3D body or glow picked: none is saved, so the 3D view gives ones that match the class
     expect(p.appearance).toEqual({ ...rest, gender: "Female", hairColor: "Red" });
     for (const k of APPEARANCE_KEYS) expect(APPEARANCE_OPTIONS[k].options).toContain(DEFAULT_APPEARANCE[k]);
@@ -100,6 +101,24 @@ describe("appearance", () => {
     const make = (body: unknown) => newCharacter({ name: "Body", classId: "mage", appearance: { body }, stats: {} }, "p").appearance.body;
     expect(make("Hooded Rogue")).toBe("Hooded Rogue");
     expect(make("Dragon")).toBeUndefined();
+  });
+
+  it("keeps a picked body style and drops an unknown one", () => {
+    const make = (style: unknown) => newCharacter({ name: "Style", classId: "mage", appearance: { style }, stats: {} }, "p").appearance.style;
+    for (const s of STYLE_OPTIONS) expect(make(s)).toBe(s);
+    expect(make("Lego")).toBeUndefined();
+    expect(make(undefined)).toBeUndefined();
+    // the create screen starts on Default
+    expect(DEFAULT_APPEARANCE.style).toBe("Default");
+  });
+
+  it("keeps heroes made before body styles existed on the Block look", () => {
+    const { style: _none, ...old } = DEFAULT_APPEARANCE;
+    void _none;
+    expect(lookFor(old, "swordsman").style).toBe("Block");
+    expect(lookFor({ ...DEFAULT_APPEARANCE, style: "Brick" }, "swordsman").style).toBe("Brick");
+    expect(lookFor({ ...DEFAULT_APPEARANCE, style: "Chibi" }, "swordsman").style).toBe("Chibi");
+    expect(lookFor({ ...DEFAULT_APPEARANCE, style: "Nonsense" }, "swordsman").style).toBe("Block");
   });
 
   it("gives players without a 3D body one that matches their class", () => {
