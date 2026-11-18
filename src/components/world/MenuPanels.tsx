@@ -6,6 +6,7 @@ import { STAT_INFO } from "@/lib/game/constants";
 import { STAT_KEYS, type StatKey } from "@/lib/game/types";
 import type { getState } from "@/lib/game/service";
 import { api } from "@/lib/client";
+import Portrait from "./Portrait";
 
 type GameState = Awaited<ReturnType<typeof getState>>;
 
@@ -55,6 +56,16 @@ export default function MenuPanels({
 
   return (
     <div className="space-y-4">
+    <section className="panel flex items-center gap-3" data-testid="profile">
+      <Portrait classId={player.classId} variant="full" className="h-28 w-[84px] shrink-0 rounded-lg border border-line" />
+      <div className="min-w-0">
+        <div className="truncate text-lg font-semibold">{player.name}</div>
+        <div className="text-sm text-muted">
+          Level {player.level} {state.className}
+        </div>
+        <div className="text-sm text-gold">{player.gold} gold</div>
+      </div>
+    </section>
 
     {state.hornWeapon && (
       <section className="panel border-gold/60" data-testid="horn-weapon">

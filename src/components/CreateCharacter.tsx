@@ -8,6 +8,7 @@ import { APPEARANCE_OPTIONS, BODY_OPTIONS, CLASS_BODY, CLASS_GLOW, CLASSES, DEFA
 import { CLASS_IDS, STAT_KEYS, type Appearance, type ClassId, type StatKey } from "@/lib/game/types";
 import { api } from "@/lib/client";
 import { EYES, HAIR, SKIN, lookFor } from "./side/hero";
+import Portrait from "./world/Portrait";
 
 // the live 3D hero; it needs the browser, so it loads after the page
 const AvatarPreview = dynamic(() => import("./three/AvatarPreview"), {
@@ -191,11 +192,15 @@ export default function CreateCharacter() {
               key={id}
               onClick={() => pickClass(id)}
               aria-pressed={classId === id}
-              className={`rounded-lg border p-3 text-left text-sm transition ${classId === id ? "border-gold bg-gold/10" : "border-line bg-panel-2 hover:border-moss"}`}
+              data-testid={`class-${id}`}
+              className={`overflow-hidden rounded-lg border text-left text-sm transition ${classId === id ? "border-gold bg-gold/10 ring-2 ring-gold/50" : "border-line bg-panel-2 hover:border-moss"}`}
             >
+              <Portrait classId={id} className="h-32 w-full sm:h-36" />
+              <div className="p-3 pt-2">
               <div className="font-semibold">{CLASSES[id].name}</div>
               <div className="mt-1 font-mono text-xs text-gold/80">{fixedText(id)}</div>
               <div className="mt-1 text-xs text-muted">{CLASSES[id].weapon === "unarmed" ? "No weapon" : WEAPONS[CLASSES[id].weapon].name}</div>
+              </div>
             </button>
           ))}
         </div>
