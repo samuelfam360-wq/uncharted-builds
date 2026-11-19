@@ -97,15 +97,21 @@ function recolor(src: THREE.Texture, color: string, keep = 1): THREE.Texture {
 function dress(vrm: VRM, look: Look) {
   const glow = new THREE.Color(look.glow ?? "#ffffff");
   const skin = new THREE.Color(look.skin).lerp(new THREE.Color("#fff1e8"), 0.2);
-  const done = new Map<THREE.Texture, THREE.Texture>();
+  const done = new Map<string, THREE.Texture>();
+  const ids = new Map<THREE.Texture, number>();
   const paint = (t: THREE.Texture | null, color: string, keep: number) => {
     if (!t) return t;
-    const key = done.get(t);
+    if (!ids.has(t)) ids.set(t, ids.size);
+    const k = `${ids.get(t)}:${color}:${keep}`;
+    const key = done.get(k);
     if (key) return key;
     const r = recolor(t, color, keep);
-    done.set(t, r);
+    done.set(k, r);
     return r;
   };
+  // the class's clothes (from its 2D art); shoes stay dark leather
+  const cloth = (name: string) =>
+    !look.outfit ? null : /Tops/i.test(name) ? look.outfit.top : /Bottoms/i.test(name) ? look.outfit.bottom : /Shoes/i.test(name) ? "#3a2a22" : null;
   vrm.scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -128,7 +134,13 @@ function dress(vrm: VRM, look: Look) {
       m.parametricRimFresnelPowerFactor = /CLOTH/.test(name) ? 3.5 : 4.5;
       m.parametricRimLiftFactor = 0.05;
       m.rimLightingMixFactor = 1;
-      if (/CLOTH/.test(name)) {
+      const outfit = cloth(name);
+      if (outfit) {
+        m.map = paint(m.map, outfit, 0.9);
+        if (m.shadeMultiplyTexture) m.shadeMultiplyTexture = paint(m.shadeMultiplyTexture, outfit, 0.9);
+        m.color.set("#ffffff");
+        m.shadeColorFactor.set(new THREE.Color(outfit).multiplyScalar(0.55));
+      } else if (/CLOTH/.test(name)) {
         m.color.multiply(new THREE.Color("#4a5296"));
         m.shadeColorFactor.multiply(new THREE.Color("#3a3f78"));
       }
@@ -432,6 +444,13 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
     const inv = g.userData.inv as THREE.Quaternion | undefined;
     if (inv) g.quaternion.copy(inv).multiply(forward);
   };
+  // bracelets are worn round the wrist: the ring's axis runs along the arm
+  // (in the rest pose the arms point sideways, along x)
+  const alongArm = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -Math.PI / 2));
+  const wear = (g: THREE.Group) => {
+    const inv = g.userData.inv as THREE.Quaternion | undefined;
+    if (inv) g.quaternion.copy(inv).multiply(alongArm);
+  };
 
   const mixer = new THREE.AnimationMixer(vrm.scene);
   const actions = new Map<string, THREE.AnimationAction>();
@@ -480,11 +499,21 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
       model.horn = horn;
       holdR.clear();
       holdL.clear();
-      aim(holdR);
-      aim(holdL);
+      const band = weapon === "healing_bracelet" || weapon === "strength_bracelet";
+      for (const g of [holdR, holdL]) (band ? wear : aim)(g);
       const w = horn ? makeHornWeapon(weapon, look.glow) : makeWeapon(weapon);
-      if (w.right) holdR.add(w.right);
-      if (w.left) holdL.add(w.left);
+      for (const [hold, piece] of [
+        [holdR, w.right],
+        [holdL, w.left],
+      ] as const) {
+        if (!piece) continue;
+        if (band) {
+          // snug round the wrist joint (the ring is built a little forward of the fist)
+          piece.scale.setScalar(0.42);
+          piece.position.set(0, -0.06 * 0.42, 0);
+        }
+        hold.add(piece);
+      }
       if (look.glow && !horn)
         for (const hold of [holdR, holdL])
           hold.traverse((o) => {

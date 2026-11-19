@@ -9,6 +9,7 @@ import { CLASS_IDS, STAT_KEYS, type Appearance, type ClassId, type StatKey } fro
 import { api } from "@/lib/client";
 import { EYES, HAIR, SKIN, lookFor } from "./side/hero";
 import Portrait from "./world/Portrait";
+import HeroArt2D from "./world/HeroArt2D";
 
 // the live 3D hero; it needs the browser, so it loads after the page
 const AvatarPreview = dynamic(() => import("./three/AvatarPreview"), {
@@ -30,6 +31,7 @@ const SHAPE_PICKS = ["gender", "hairStyle", "build"] as const;
 const STYLE_HINT: Record<(typeof STYLE_OPTIONS)[number], string> = {
   Default: "Anime",
   Chibi: "Small and cute",
+  "2D Art": "Same as the 2D game",
   Block: "Blocky adventurer",
   Brick: "Toy bricks",
 };
@@ -99,7 +101,7 @@ export default function CreateCharacter() {
           <div className="label mb-2">Your look</div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <div className="mb-2 grid grid-cols-4 gap-1.5" role="group" aria-label="Body style">
+              <div className="mb-2 grid grid-cols-3 gap-1.5 sm:grid-cols-5" role="group" aria-label="Body style">
                 {STYLE_OPTIONS.map((s) => (
                   <button
                     type="button"
@@ -113,6 +115,7 @@ export default function CreateCharacter() {
                   </button>
                 ))}
               </div>
+              <div className="mb-1 text-center text-xs font-semibold text-muted">In 3D</div>
               <AvatarPreview look={hero} weapon={cls.weapon} />
               {look.style === "Block" && (
                 <div className="mt-2 flex items-center justify-center gap-3">
@@ -128,6 +131,9 @@ export default function CreateCharacter() {
                 </div>
               )}
               <p className="mt-1 text-center text-xs text-muted">Drag your hero to turn it.</p>
+              <div className="mt-3">
+                <HeroArt2D classId={classId} />
+              </div>
             </div>
             <div className="space-y-3">
               {COLOUR_PICKS.map(({ key, colours }) => (
