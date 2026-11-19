@@ -444,6 +444,13 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
     const inv = g.userData.inv as THREE.Quaternion | undefined;
     if (inv) g.quaternion.copy(inv).multiply(forward);
   };
+  // bracelets are worn round the wrist: the ring's axis runs along the arm
+  // (in the rest pose the arms point sideways, along x)
+  const alongArm = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -Math.PI / 2));
+  const wear = (g: THREE.Group) => {
+    const inv = g.userData.inv as THREE.Quaternion | undefined;
+    if (inv) g.quaternion.copy(inv).multiply(alongArm);
+  };
 
   const mixer = new THREE.AnimationMixer(vrm.scene);
   const actions = new Map<string, THREE.AnimationAction>();
@@ -492,11 +499,21 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
       model.horn = horn;
       holdR.clear();
       holdL.clear();
-      aim(holdR);
-      aim(holdL);
+      const band = weapon === "healing_bracelet" || weapon === "strength_bracelet";
+      for (const g of [holdR, holdL]) (band ? wear : aim)(g);
       const w = horn ? makeHornWeapon(weapon, look.glow) : makeWeapon(weapon);
-      if (w.right) holdR.add(w.right);
-      if (w.left) holdL.add(w.left);
+      for (const [hold, piece] of [
+        [holdR, w.right],
+        [holdL, w.left],
+      ] as const) {
+        if (!piece) continue;
+        if (band) {
+          // snug round the wrist joint (the ring is built a little forward of the fist)
+          piece.scale.setScalar(0.42);
+          piece.position.set(0, -0.06 * 0.42, 0);
+        }
+        hold.add(piece);
+      }
       if (look.glow && !horn)
         for (const hold of [holdR, holdL])
           hold.traverse((o) => {
