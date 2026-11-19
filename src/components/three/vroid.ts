@@ -97,15 +97,21 @@ function recolor(src: THREE.Texture, color: string, keep = 1): THREE.Texture {
 function dress(vrm: VRM, look: Look) {
   const glow = new THREE.Color(look.glow ?? "#ffffff");
   const skin = new THREE.Color(look.skin).lerp(new THREE.Color("#fff1e8"), 0.2);
-  const done = new Map<THREE.Texture, THREE.Texture>();
+  const done = new Map<string, THREE.Texture>();
+  const ids = new Map<THREE.Texture, number>();
   const paint = (t: THREE.Texture | null, color: string, keep: number) => {
     if (!t) return t;
-    const key = done.get(t);
+    if (!ids.has(t)) ids.set(t, ids.size);
+    const k = `${ids.get(t)}:${color}:${keep}`;
+    const key = done.get(k);
     if (key) return key;
     const r = recolor(t, color, keep);
-    done.set(t, r);
+    done.set(k, r);
     return r;
   };
+  // the class's clothes (from its 2D art); shoes stay dark leather
+  const cloth = (name: string) =>
+    !look.outfit ? null : /Tops/i.test(name) ? look.outfit.top : /Bottoms/i.test(name) ? look.outfit.bottom : /Shoes/i.test(name) ? "#3a2a22" : null;
   vrm.scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -128,7 +134,13 @@ function dress(vrm: VRM, look: Look) {
       m.parametricRimFresnelPowerFactor = /CLOTH/.test(name) ? 3.5 : 4.5;
       m.parametricRimLiftFactor = 0.05;
       m.rimLightingMixFactor = 1;
-      if (/CLOTH/.test(name)) {
+      const outfit = cloth(name);
+      if (outfit) {
+        m.map = paint(m.map, outfit, 0.9);
+        if (m.shadeMultiplyTexture) m.shadeMultiplyTexture = paint(m.shadeMultiplyTexture, outfit, 0.9);
+        m.color.set("#ffffff");
+        m.shadeColorFactor.set(new THREE.Color(outfit).multiplyScalar(0.55));
+      } else if (/CLOTH/.test(name)) {
         m.color.multiply(new THREE.Color("#4a5296"));
         m.shadeColorFactor.multiply(new THREE.Color("#3a3f78"));
       }

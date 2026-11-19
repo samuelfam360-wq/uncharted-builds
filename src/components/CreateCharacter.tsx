@@ -9,6 +9,7 @@ import { CLASS_IDS, STAT_KEYS, type Appearance, type ClassId, type StatKey } fro
 import { api } from "@/lib/client";
 import { EYES, HAIR, SKIN, lookFor } from "./side/hero";
 import Portrait from "./world/Portrait";
+import HeroArt2D from "./world/HeroArt2D";
 
 // the live 3D hero; it needs the browser, so it loads after the page
 const AvatarPreview = dynamic(() => import("./three/AvatarPreview"), {
@@ -113,6 +114,7 @@ export default function CreateCharacter() {
                   </button>
                 ))}
               </div>
+              <div className="mb-1 text-center text-xs font-semibold text-muted">In 3D</div>
               <AvatarPreview look={hero} weapon={cls.weapon} />
               {look.style === "Block" && (
                 <div className="mt-2 flex items-center justify-center gap-3">
@@ -128,6 +130,9 @@ export default function CreateCharacter() {
                 </div>
               )}
               <p className="mt-1 text-center text-xs text-muted">Drag your hero to turn it.</p>
+              <div className="mt-3">
+                <HeroArt2D classId={classId} />
+              </div>
             </div>
             <div className="space-y-3">
               {COLOUR_PICKS.map(({ key, colours }) => (

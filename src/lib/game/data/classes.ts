@@ -75,6 +75,25 @@ export const CLASS_GLOW: Record<ClassId, string> = {
   free: "White",
 };
 
+/**
+ * Each class's clothes in the anime 3D style, taken from the class's Canva 2D
+ * art (top, bottoms), so the hero looks like the same person in 2D and 3D.
+ */
+export const CLASS_OUTFIT: Record<ClassId, { top: string; bottom: string }> = {
+  swordsman: { top: "#2d3f7a", bottom: "#d9dde6" },
+  tanker: { top: "#2d4a80", bottom: "#26304a" },
+  lancer: { top: "#8e2b2b", bottom: "#5a1f22" },
+  blacksmith: { top: "#7a5232", bottom: "#5a3d26" },
+  monk: { top: "#e4d1a6", bottom: "#8a7a66" },
+  saint: { top: "#efe7d2", bottom: "#efe7d2" },
+  mage: { top: "#5a3b94", bottom: "#dcd8e6" },
+  tamer: { top: "#234a4f", bottom: "#263238" },
+  assassin: { top: "#2a2433", bottom: "#2a2433" },
+  ranger: { top: "#2f6e3c", bottom: "#e6e8e0" },
+  gunslinger: { top: "#2b2b2e", bottom: "#2b2b2e" },
+  free: { top: "#ebe5d6", bottom: "#8f8f8f" },
+};
+
 /** The animated bodies in 3D (from the free KayKit Adventurers pack). */
 export const BODY_OPTIONS = ["Knight", "Barbarian", "Mage", "Rogue", "Hooded Rogue"] as const;
 

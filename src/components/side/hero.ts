@@ -3,7 +3,7 @@
 // Chibi proportions and a thick dark outline to match the art pack.
 
 import type { Appearance, ClassId, WeaponType } from "@/lib/game/types";
-import { BODY_OPTIONS, CLASS_BODY, CLASS_GLOW, GLOW, OLD_STYLE, STYLE_OPTIONS } from "@/lib/game/data/classes";
+import { BODY_OPTIONS, CLASS_BODY, CLASS_GLOW, CLASS_OUTFIT, GLOW, OLD_STYLE, STYLE_OPTIONS } from "@/lib/game/data/classes";
 import { OUTLINE, ellipse, outlined, poly, roundRect, shade } from "./sprites";
 
 type Ctx = CanvasRenderingContext2D;
@@ -67,6 +67,8 @@ export interface Look {
   glow?: string;
   /** The body style in 3D: Default (anime), Chibi, Block or Brick. */
   style?: string;
+  /** The class's clothes colours in the anime 3D style. */
+  outfit?: { top: string; bottom: string };
   /** A see-through copy (a skill clone): no painted face. */
   noFace?: boolean;
 }
@@ -83,6 +85,7 @@ export function lookFor(a: Appearance, classId: ClassId): Look {
     body: a.body && (BODY_OPTIONS as readonly string[]).includes(a.body) ? a.body : CLASS_BODY[classId] ?? "Rogue",
     glow: GLOW[a.glow ?? ""] ?? GLOW[CLASS_GLOW[classId]] ?? GLOW.White,
     style: (STYLE_OPTIONS as readonly string[]).includes(a.style ?? "") ? a.style : OLD_STYLE,
+    outfit: CLASS_OUTFIT[classId] ?? CLASS_OUTFIT.free,
   };
 }
 
