@@ -31,6 +31,7 @@ const SHAPE_PICKS = ["gender", "hairStyle", "build"] as const;
 const STYLE_HINT: Record<(typeof STYLE_OPTIONS)[number], string> = {
   Default: "Anime",
   Chibi: "Small and cute",
+  "2D Art": "Same as the 2D game",
   Block: "Blocky adventurer",
   Brick: "Toy bricks",
 };
@@ -100,7 +101,7 @@ export default function CreateCharacter() {
           <div className="label mb-2">Your look</div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <div className="mb-2 grid grid-cols-4 gap-1.5" role="group" aria-label="Body style">
+              <div className="mb-2 grid grid-cols-3 gap-1.5 sm:grid-cols-5" role="group" aria-label="Body style">
                 {STYLE_OPTIONS.map((s) => (
                   <button
                     type="button"

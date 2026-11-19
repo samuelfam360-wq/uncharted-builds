@@ -34,11 +34,11 @@ export const APPEARANCE_OPTIONS: Record<keyof Appearance, { label: string; optio
   build: { label: "Body build", options: ["Slim", "Average", "Strong"] },
   body: { label: "3D body", options: ["Knight", "Barbarian", "Mage", "Rogue", "Hooded Rogue"] },
   glow: { label: "Glow colour", options: ["Cyan", "Blue", "Red", "Orange", "Yellow", "White Gold", "Purple", "Mint", "Pink", "Green", "Lime", "White"] },
-  style: { label: "Body style", options: ["Default", "Chibi", "Block", "Brick"] },
+  style: { label: "Body style", options: ["Default", "Chibi", "2D Art", "Block", "Brick"] },
 };
 
 /** The body styles a player picks from when making their avatar. */
-export const STYLE_OPTIONS = ["Default", "Chibi", "Block", "Brick"] as const;
+export const STYLE_OPTIONS = ["Default", "Chibi", "2D Art", "Block", "Brick"] as const;
 export type BodyStyle = (typeof STYLE_OPTIONS)[number];
 /** Heroes saved before body styles existed keep the look they had: Block. */
 export const OLD_STYLE: BodyStyle = "Block";

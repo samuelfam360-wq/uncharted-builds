@@ -65,8 +65,10 @@ export interface Look {
   body?: string;
   /** The neon glow colour in 3D. */
   glow?: string;
-  /** The body style in 3D: Default (anime), Chibi, Block or Brick. */
+  /** The body style in 3D: Default (anime), Chibi, 2D Art (the 2D picture), Block or Brick. */
   style?: string;
+  /** The hero's class (the 2D Art style shows that class's picture). */
+  classId?: ClassId;
   /** The class's clothes colours in the anime 3D style. */
   outfit?: { top: string; bottom: string };
   /** A see-through copy (a skill clone): no painted face. */
@@ -86,6 +88,7 @@ export function lookFor(a: Appearance, classId: ClassId): Look {
     glow: GLOW[a.glow ?? ""] ?? GLOW[CLASS_GLOW[classId]] ?? GLOW.White,
     style: (STYLE_OPTIONS as readonly string[]).includes(a.style ?? "") ? a.style : OLD_STYLE,
     outfit: CLASS_OUTFIT[classId] ?? CLASS_OUTFIT.free,
+    classId,
   };
 }
 
