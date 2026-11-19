@@ -5,7 +5,7 @@ import { MONSTERS } from "@/lib/game/data/world";
 import { SIDE_MAPS, TILE, isLadder, isPlatform, isSolid, isSwamp, mapSize, tileAt, type BuildingDef, type SideMap, type SideMapId } from "@/lib/game/data/sidemaps";
 import { PLAYER_H, WEAPON_FEEL, type Engine, type Monster } from "./engine";
 import { drawHero, type Look, type Pose } from "./hero";
-import { CANVA_EARTH, drawCanvaBuilding, drawCanvaGroundTile, drawCanvaPlatformTile, drawCanvaHero, drawCanvaMonster, drawCanvaSky, hasCanvaHero, hasCanvaMonster, hasCanvaWorld } from "./canva";
+import { CANVA_EARTH, drawCanvaBuilding, drawCanvaGroundTile, drawCanvaLadder, drawCanvaPlatformTile, drawCanvaHero, drawCanvaMonster, drawCanvaSign, drawCanvaSky, drawCanvaVillager, hasCanvaCave, hasCanvaHero, hasCanvaLadder, hasCanvaMonster, hasCanvaVillager, hasCanvaWorld } from "./canva";
 import type { ClassId } from "@/lib/game/types";
 import { MONSTER_LOOKS, OUTLINE, drawMonster, drawPet, petLookOf, ellipse, frame, makeCanvas, outlined, poly, roundRect, shade, tintedFrame } from "./sprites";
 
@@ -35,7 +35,7 @@ export function mapLayers(id: SideMapId): Layers {
   const canvaWorld = m.backdrop !== "cave" && hasCanvaWorld();
   for (const bd of m.buildings) drawBuilding(b, bd, ground * TILE);
   if (!canvaWorld) for (const d of m.decor.filter((d) => !d.front && !d.frame.startsWith("torch"))) drawDecor(b, d.frame, d.x, d.row, d.scale ?? 1);
-  for (const s of m.signs) drawDecor(b, "sign", s.x, s.row, 1);
+  for (const s of m.signs) if (!drawCanvaSign(b, s.x * TILE, s.row * TILE, TILE * 1.15)) drawDecor(b, "sign", s.x, s.row, 1);
   const T = m.terrain;
   const cave = m.backdrop === "cave";
   const solid = (x: number, y: number) => (y < 0 ? cave : isSolid(tileAt(m, x, y)));
@@ -66,6 +66,16 @@ export function mapLayers(id: SideMapId): Layers {
         // the ladder pokes up through the platform it leads to
         const top = !isLadder(tileAt(m, x, y - 1));
         const bottom = !isLadder(tileAt(m, x, y + 1));
+        if (hasCanvaLadder()) {
+          // the whole ladder in one go, from its top tile
+          if (top) {
+            let yb = y;
+            while (isLadder(tileAt(m, x, yb + 1))) yb++;
+            drawCanvaLadder(b, (x + 0.5) * TILE, (y - 1) * TILE + 6, (yb + 1) * TILE, TILE * 0.72);
+            if (isPlatform(tileAt(m, x, y - 1))) redrawPlatform(x, y - 1);
+          }
+          continue;
+        }
         b.drawImage(frame(bottom ? "ladder_bottom" : "ladder_middle"), x * TILE, y * TILE);
         if (top) {
           b.drawImage(frame("ladder_top"), x * TILE, (y - 1) * TILE);
@@ -167,7 +177,7 @@ function drawSign(ctx: Ctx, b: BuildingDef, groundY: number) {
   ctx.moveTo(sx + 20, sy - 14);
   ctx.lineTo(sx + 20, sy);
   ctx.stroke();
-  outlined(ctx, roundRect(sx - 40, sy, 80, 32, 6), "#fbe7b5", 4);
+  outlined(ctx, roundRect(sx - 50, sy, 100, 32, 6), "#fbe7b5", 4);
   ctx.fillStyle = OUTLINE;
   ctx.font = "900 17px ui-rounded, system-ui, sans-serif";
   ctx.textAlign = "center";
@@ -178,6 +188,13 @@ function drawSign(ctx: Ctx, b: BuildingDef, groundY: number) {
 // ---------- backgrounds ----------
 
 function drawBackdrop(ctx: Ctx, m: SideMap, camX: number, camY: number, vw: number, vh: number, now: number) {
+  if (m.backdrop === "cave" && hasCanvaCave()) {
+    drawCanvaSky(ctx, camX, vw, vh, true);
+    // push the painted cave back so the real floors and walls stand out
+    ctx.fillStyle = "rgba(28, 18, 48, 0.38)";
+    ctx.fillRect(0, 0, vw, vh);
+    return;
+  }
   if (m.backdrop === "cave") {
     const g = ctx.createLinearGradient(0, 0, 0, vh);
     g.addColorStop(0, "#241d33");
@@ -305,7 +322,8 @@ export function drawFrame(ctx: Ctx, e: Engine, cam: Camera, vwPx: number, vhPx: 
     ctx.save();
     ctx.translate(n.x * TILE, n.row * TILE);
     ctx.scale(-1, 1);
-    drawHero(ctx, info.npcLooks[n.id], { pose: "idle", t: now + n.x * 100, progress: 0, weapon: "unarmed" });
+    if (hasCanvaVillager(n.id)) drawCanvaVillager(ctx, n.id, now + n.x * 100);
+    else drawHero(ctx, info.npcLooks[n.id], { pose: "idle", t: now + n.x * 100, progress: 0, weapon: "unarmed" });
     ctx.restore();
   }
 
