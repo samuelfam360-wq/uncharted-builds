@@ -1,11 +1,15 @@
-// Anime heroes (the "Default" and "Chibi" body styles), made in VRoid Studio and
-// saved as .vrm files. They use the anime shading that comes with the model (MToon),
-// with the hero's neon colour as an edge light. Their moves are the KayKit pack's
-// moves, moved over onto the anime skeleton, so every style moves the same way.
+// Anime heroes (the "Default" and "Chibi" body styles), saved as .vrm files (the
+// VRoid format). They use the anime shading that comes with the model (MToon),
+// with the hero's neon colour as an edge light, and their hair swings (VRM spring
+// bones). Their moves are the KayKit pack's moves, moved over onto the anime
+// skeleton, so every style moves the same way.
 //
-// For now every class uses one free sample model (pixiv's VRoid sample, which may
-// be used in games, changed and shared). A class model saved as
-// /models/vroid/<class>.vrm can replace it later.
+// The bodies and hair come from Maker Studio's character maker: a male and a
+// female body, and three hair files (standard, short, long), each made on the same
+// male body so the hair fits every head. A hero is the body for their gender with
+// the hair taken off the hair file for their hair style and put on the body's head.
+// If those files can't load, the free pixiv VRoid sample (which may be used in
+// games, changed and shared) stands in.
 //
 // Loading a model takes a moment, so a hero starts as the Block hero and swaps
 // to the anime one when it is ready.
@@ -20,25 +24,51 @@ import { WEAPON_LOOK, makeHero, makeWeapon, type HeroModel, type HeroPose } from
 import { attackClip, loadPack, makeRiggedHero, onPackReady, packMoves } from "./rigged";
 
 const BASE = "/models/vroid/";
-const MODEL = "sample.vrm";
+/** Stands in when the Maker Studio files can't load. */
+const SAMPLE = "sample.vrm";
+const BODY = { male: "body-male.vrm", female: "body-female.vrm" };
+/** Both bodies already wear the short hair, so short hair needs no second file. */
+const SHORT_HAIR = "hair-short.vrm";
+/**
+ * The hair file for each hair style in the create screen (Maker Studio has three
+ * hair shapes so far; the closest one is used until there is one per style).
+ */
+export const HAIR_FILE: Record<string, string> = {
+  Short: SHORT_HAIR,
+  Shaved: SHORT_HAIR,
+  Medium: "hair-standard.vrm",
+  Spiky: "hair-standard.vrm",
+  Long: "hair-long.vrm",
+  Ponytail: "hair-long.vrm",
+  Braided: "hair-long.vrm",
+};
+
+/** The two files a look is made from: its body, and the file its hair comes from (null: the body's own). */
+export function vrmFilesFor(look: Pick<Look, "female" | "hairStyle">): { body: string; hair: string | null } {
+  const hair = HAIR_FILE[look.hairStyle] ?? SHORT_HAIR;
+  return { body: look.female ? BODY.female : BODY.male, hair: hair === SHORT_HAIR ? null : hair };
+}
 
 /** Height in the scene: the anime hero is a little taller than the Block one (1.4); the chibi a little shorter. */
 const HEIGHT = { Default: 1.5, Chibi: 1.25 };
 
 // ---------- loading ----------
 
-let fileBytes: Promise<ArrayBuffer | null> | null = null;
-function modelBytes(): Promise<ArrayBuffer | null> {
-  if (!fileBytes)
-    fileBytes = fetch(BASE + MODEL)
+const files = new Map<string, Promise<ArrayBuffer | null>>();
+function fileBytes(name: string): Promise<ArrayBuffer | null> {
+  let f = files.get(name);
+  if (!f) {
+    f = fetch(BASE + name)
       .then((r) => (r.ok ? r.arrayBuffer() : null))
       .catch(() => null);
-  return fileBytes;
+    files.set(name, f);
+  }
+  return f;
 }
 
-/** A fresh copy of the model (each hero needs its own skeleton, face and hair physics). */
-async function loadVrm(): Promise<VRM | null> {
-  const bytes = await modelBytes();
+/** A fresh copy of a model (each hero needs its own skeleton, face and hair physics). */
+async function loadVrm(name: string): Promise<VRM | null> {
+  const bytes = await fileBytes(name);
   if (!bytes) return null;
   const loader = new GLTFLoader();
   loader.register((p) => new VRMLoaderPlugin(p));
@@ -49,11 +79,113 @@ async function loadVrm(): Promise<VRM | null> {
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     VRMUtils.combineSkeletons(gltf.scene);
     vrm.scene.traverse((o) => (o.frustumCulled = false));
+    vrm.scene.userData.vrmFile = name;
     return vrm;
   } catch (err) {
-    console.warn("Anime model failed to load; keeping the Block hero.", err);
+    console.warn(`Anime model ${name} failed to load.`, err);
     return null;
   }
+}
+
+// ---------- hair: take the hair off one model and put it on another's head ----------
+
+const isHairMesh = (o: THREE.Object3D) => {
+  const m = o as THREE.Mesh;
+  if (!m.isMesh) return false;
+  const mats = Array.isArray(m.material) ? m.material : [m.material];
+  return mats.some((x) => /HAIR/i.test(x.name));
+};
+const isHairBone = (o: THREE.Object3D) => /^J_Sec_Hair/.test(o.name);
+
+/**
+ * Puts the hair of `from` on `body`. Both are made on the same skeleton layout, so
+ * each hair bone chain moves under the body's matching bone (its head) keeping its
+ * place, and the hair mesh is re-bound to the body's skeleton. The body's own hair
+ * and its swinging-hair settings go; the new hair's swinging settings (and the
+ * head and body shapes it bumps against) come with it.
+ */
+export function wearHair(body: VRM, from: VRM): boolean {
+  const hairMeshes: THREE.SkinnedMesh[] = [];
+  from.scene.traverse((o) => {
+    if (isHairMesh(o) && (o as THREE.SkinnedMesh).isSkinnedMesh) hairMeshes.push(o as THREE.SkinnedMesh);
+  });
+  const roots: THREE.Object3D[] = [];
+  from.scene.traverse((o) => {
+    if (isHairBone(o) && o.parent && !isHairBone(o.parent)) roots.push(o);
+  });
+  if (!hairMeshes.length) return false;
+
+  // the body's matching node for any node of the hair file: humanoid bones by role, others by name
+  const role = new Map<THREE.Object3D, VRMHumanBoneName>();
+  for (const [name, b] of Object.entries(from.humanoid.rawHumanBones)) if (b?.node) role.set(b.node, name as VRMHumanBoneName);
+  const bodyByName = new Map<string, THREE.Object3D>();
+  body.scene.traverse((o) => {
+    if (o.name && !bodyByName.has(o.name)) bodyByName.set(o.name, o);
+  });
+  const match = (n: THREE.Object3D): THREE.Object3D | null => {
+    const r = role.get(n);
+    return (r && body.humanoid.getRawBoneNode(r)) || bodyByName.get(n.name) || null;
+  };
+
+  if (roots.some((r) => !match(r.parent!))) return false;
+
+  // 1. the body's own hair goes, with its swinging settings
+  const old: THREE.Object3D[] = [];
+  body.scene.traverse((o) => {
+    if (isHairMesh(o)) old.push(o);
+  });
+  for (const o of old) o.removeFromParent();
+  const bodySprings = body.springBoneManager;
+  if (bodySprings)
+    for (const j of [...bodySprings.joints]) if (isHairBone(j.bone)) bodySprings.deleteJoint(j);
+
+  // 2. the hair bone chains move onto the body (their place next to the head stays the same)
+  for (const r of roots) {
+    const parent = match(r.parent!)!;
+    // a body bone of the same name (the body's own hair bones) is dropped first
+    const twin = bodyByName.get(r.name);
+    twin?.removeFromParent();
+    parent.add(r);
+  }
+
+  // 3. the hair mesh is bound to the body's bones (same rest pose, same bone inverses)
+  const meshParent = (() => {
+    let p: THREE.Object3D | null = null;
+    body.scene.traverse((o) => {
+      if (!p && (o as THREE.SkinnedMesh).isSkinnedMesh) p = o.parent;
+    });
+    return (p as THREE.Object3D | null) ?? body.scene;
+  })();
+  for (const mesh of hairMeshes) {
+    const bones = mesh.skeleton.bones.map((b) => (isHairBone(b) ? b : ((match(b) as THREE.Bone | null) ?? b)));
+    const skeleton = new THREE.Skeleton(bones, mesh.skeleton.boneInverses.map((m) => m.clone()));
+    meshParent.add(mesh);
+    mesh.bind(skeleton, mesh.bindMatrix);
+  }
+
+  // 4. the swinging hair: its colliders (head, neck, shoulders) move to the body's matching bones
+  const springs = from.springBoneManager;
+  if (springs) {
+    for (const c of springs.colliders) {
+      const p = c.parent ? match(c.parent) : null;
+      if (p) p.add(c);
+    }
+    if (bodySprings) for (const j of springs.joints) bodySprings.addJoint(j);
+    else (body as { springBoneManager?: typeof springs }).springBoneManager = springs;
+  }
+  body.springBoneManager?.setInitState();
+  return true;
+}
+
+/** The anime model for a look: its body wearing the hair for its hair style, or the sample. */
+async function loadLookVrm(look: Look): Promise<VRM | null> {
+  const want = vrmFilesFor(look);
+  const [body, hair] = await Promise.all([loadVrm(want.body), want.hair ? loadVrm(want.hair) : Promise.resolve(null)]);
+  if (body) {
+    if (hair && !wearHair(body, hair)) console.warn(`Could not put ${want.hair} on ${want.body}; keeping its own hair.`);
+    return body;
+  }
+  return loadVrm(SAMPLE);
 }
 
 // ---------- colours: skin, hair, eyes and the neon glow ----------
@@ -241,7 +373,8 @@ function retarget(vrm: VRM): Record<string, THREE.AnimationClip> | null {
   if (!moves) return null;
   const hipsNode = vrm.humanoid.getNormalizedBoneNode("hips");
   if (!hipsNode) return null;
-  const cacheKey = hipsNode.name;
+  // one set of moves per model file (the bodies differ in size)
+  const cacheKey = `${vrm.scene.userData.vrmFile ?? ""}:${hipsNode.name}`;
   const hit = clipCache.get(cacheKey);
   if (hit) return hit;
 
@@ -489,6 +622,9 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
   let swings = 0;
   let nextBlink = 0;
   const face = vrm.expressionManager;
+  const here = new THREE.Vector3();
+  const last = new THREE.Vector3();
+  let placed = false;
 
   const model: HeroModel = {
     root,
@@ -563,6 +699,12 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
         if (bt >= 150) nextBlink = t + 2200 + Math.random() * 2600;
       }
       vrm.update(dt);
+      // the swinging hair works in the world: when the hero first appears or jumps
+      // to a new place (a new map, a respawn), it starts again at rest instead of whipping
+      root.getWorldPosition(here);
+      if (!placed || here.distanceTo(last) > 4) vrm.springBoneManager?.reset();
+      placed = true;
+      last.copy(here);
     },
     dispose() {
       mixer.stopAllAction();
@@ -599,7 +741,7 @@ export function makeVroidHero(look: Look): HeroModel {
   const offPack = onPackReady(swapToRigged);
 
   void loadPack().then(async () => {
-    const vrm = await loadVrm();
+    const vrm = await loadLookVrm(look);
     if (!vrm || gone) return;
     const anime = animeHero(vrm, look, chibi);
     if (!anime || gone) {
@@ -637,6 +779,8 @@ export function makeVroidHero(look: Look): HeroModel {
 }
 
 /** Starts downloading the anime model early (for the create screen and the game). */
-export function preloadVroid() {
-  void modelBytes();
+export function preloadVroid(look?: Pick<Look, "female" | "hairStyle">) {
+  const want = vrmFilesFor(look ?? { female: false, hairStyle: "Short" });
+  void fileBytes(want.body);
+  if (want.hair) void fileBytes(want.hair);
 }
