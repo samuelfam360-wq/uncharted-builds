@@ -1,27 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { APPEARANCE_OPTIONS } from "@/lib/game/data/classes";
-import { HAIR_FILE, vrmFilesFor } from "@/components/three/vroid";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { HERO, SAMPLE } from "@/components/three/vroid";
 
 const dir = join(__dirname, "..", "public", "models", "vroid");
 
+/** The JSON part of a .vrm (a glTF binary file). */
+function gltfJson(file: string) {
+  const b = readFileSync(join(dir, file));
+  const n = b.readUInt32LE(12);
+  return JSON.parse(b.subarray(20, 20 + n).toString("utf8"));
+}
+
 describe("anime hero files", () => {
-  it("every hair style in the create screen has a hair file", () => {
-    for (const style of APPEARANCE_OPTIONS.hairStyle.options) expect(HAIR_FILE[style], style).toBeTruthy();
+  it("the hero and the stand-in are in the game", () => {
+    expect(existsSync(join(dir, HERO))).toBe(true);
+    expect(existsSync(join(dir, SAMPLE))).toBe(true);
   });
 
-  it("picks the body by gender and the hair by hair style", () => {
-    expect(vrmFilesFor({ female: false, hairStyle: "Short" })).toEqual({ body: "body-male.vrm", hair: null });
-    expect(vrmFilesFor({ female: true, hairStyle: "Short" })).toEqual({ body: "body-female.vrm", hair: null });
-    expect(vrmFilesFor({ female: true, hairStyle: "Long" })).toEqual({ body: "body-female.vrm", hair: "hair-long.vrm" });
-    expect(vrmFilesFor({ female: false, hairStyle: "Spiky" })).toEqual({ body: "body-male.vrm", hair: "hair-standard.vrm" });
-    expect(vrmFilesFor({ female: false, hairStyle: "Unknown" }).hair).toBeNull();
-  });
-
-  it("every file it can ask for is in the game (and the sample that stands in)", () => {
-    const wanted = new Set<string>(["sample.vrm", "body-male.vrm", "body-female.vrm"]);
-    for (const f of Object.values(HAIR_FILE)) if (f !== "hair-short.vrm") wanted.add(f);
-    for (const f of wanted) expect(existsSync(join(dir, f)), f).toBe(true);
+  it("the hero has the bones the game's moves need, and its hair has its own material", () => {
+    const j = gltfJson(HERO);
+    const bones = Object.keys(j.extensions.VRMC_vrm.humanoid.humanBones);
+    for (const b of ["hips", "spine", "chest", "head", "leftUpperArm", "leftLowerArm", "leftHand", "rightUpperArm", "rightLowerArm", "rightHand", "leftUpperLeg", "leftLowerLeg", "leftFoot", "rightUpperLeg", "rightLowerLeg", "rightFoot"])
+      expect(bones, b).toContain(b);
+    expect(j.materials.some((m: { name: string }) => /HAIR/.test(m.name))).toBe(true);
   });
 });
