@@ -6,9 +6,12 @@ import { makeBrickHero } from "./brick";
 import { makeHero, type HeroModel } from "./models";
 import { makeRiggedHero } from "./rigged";
 import { makeVroidHero } from "./vroid";
+import { hasCardArt, makeCardHero } from "./card";
 
 export function heroFor(look: Look): HeroModel {
   switch (look.style) {
+    case "2D Art":
+      return hasCardArt(look.classId) ? makeCardHero(look, look.classId) : makeVroidHero(look);
     case "Default":
     case "Chibi":
       return makeVroidHero(look);

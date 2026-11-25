@@ -1,8 +1,10 @@
+swordsman-makerlab.vrm: the Uncharted Builds Swordsman, made by MakerLab from Samuel Fam's
+2D Swordsman art, then rigged and saved as VRM 1.0 in Samuel's Maker Studio
+(samuelfam360-wq/maker-studio). Author: Samuel Fam. Every anime hero uses it for now.
+
 sample.vrm: "VRM1_Constraint_Twist_Sample" by pixiv Inc. ((c) 2022 pixiv Inc.),
 from the pixiv/three-vrm samples. Slimmed for the web (smaller textures, flat normal maps).
-
 Its VRM 1.0 licence (https://vrm.dev/licenses/1.0/, stored in the file's meta) says:
 avatar use by everyone, commercial use including corporations, violent content allowed,
 modification and redistribution allowed, credit not required.
-
-It stands in until each class has its own VRoid hero.
+It only stands in if the Swordsman fails to load.

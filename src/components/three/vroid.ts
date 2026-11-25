@@ -1,11 +1,12 @@
-// Anime heroes (the "Default" and "Chibi" body styles), made in VRoid Studio and
-// saved as .vrm files. They use the anime shading that comes with the model (MToon),
+// Anime heroes (the "Default" and "Chibi" body styles), saved as .vrm files (the
+// VRoid format). They use the anime shading that comes with the model (MToon),
 // with the hero's neon colour as an edge light. Their moves are the KayKit pack's
 // moves, moved over onto the anime skeleton, so every style moves the same way.
 //
-// For now every class uses one free sample model (pixiv's VRoid sample, which may
-// be used in games, changed and shared). A class model saved as
-// /models/vroid/<class>.vrm can replace it later.
+// Every hero is the MakerLab Swordsman for now (made from the Swordsman's 2D art,
+// rigged in Maker Studio): one look for everyone first, improved step by step.
+// If it can't load, the free pixiv VRoid sample (which may be used in games,
+// changed and shared) stands in.
 //
 // Loading a model takes a moment, so a hero starts as the Block hero and swaps
 // to the anime one when it is ready.
@@ -20,25 +21,33 @@ import { WEAPON_LOOK, makeHero, makeWeapon, type HeroModel, type HeroPose } from
 import { attackClip, loadPack, makeRiggedHero, onPackReady, packMoves } from "./rigged";
 
 const BASE = "/models/vroid/";
-const MODEL = "sample.vrm";
+/** The hero every anime look uses for now. */
+export const HERO = "swordsman-makerlab.vrm";
+/** Stands in if the hero can't load. */
+export const SAMPLE = "sample.vrm";
+/** Models that are already chibi: the Chibi style only makes them a little smaller. */
+const BUILT_CHIBI = new Set([HERO]);
 
 /** Height in the scene: the anime hero is a little taller than the Block one (1.4); the chibi a little shorter. */
 const HEIGHT = { Default: 1.5, Chibi: 1.25 };
 
 // ---------- loading ----------
 
-let fileBytes: Promise<ArrayBuffer | null> | null = null;
-function modelBytes(): Promise<ArrayBuffer | null> {
-  if (!fileBytes)
-    fileBytes = fetch(BASE + MODEL)
+const files = new Map<string, Promise<ArrayBuffer | null>>();
+function fileBytes(name: string): Promise<ArrayBuffer | null> {
+  let f = files.get(name);
+  if (!f) {
+    f = fetch(BASE + name)
       .then((r) => (r.ok ? r.arrayBuffer() : null))
       .catch(() => null);
-  return fileBytes;
+    files.set(name, f);
+  }
+  return f;
 }
 
-/** A fresh copy of the model (each hero needs its own skeleton, face and hair physics). */
-async function loadVrm(): Promise<VRM | null> {
-  const bytes = await modelBytes();
+/** A fresh copy of a model (each hero needs its own skeleton, face and hair physics). */
+async function loadVrm(name: string): Promise<VRM | null> {
+  const bytes = await fileBytes(name);
   if (!bytes) return null;
   const loader = new GLTFLoader();
   loader.register((p) => new VRMLoaderPlugin(p));
@@ -49,11 +58,16 @@ async function loadVrm(): Promise<VRM | null> {
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     VRMUtils.combineSkeletons(gltf.scene);
     vrm.scene.traverse((o) => (o.frustumCulled = false));
+    vrm.scene.userData.vrmFile = name;
     return vrm;
   } catch (err) {
-    console.warn("Anime model failed to load; keeping the Block hero.", err);
+    console.warn(`Anime model ${name} failed to load.`, err);
     return null;
   }
+}
+
+async function loadHeroVrm(): Promise<VRM | null> {
+  return (await loadVrm(HERO)) ?? loadVrm(SAMPLE);
 }
 
 // ---------- colours: skin, hair, eyes and the neon glow ----------
@@ -94,18 +108,132 @@ function recolor(src: THREE.Texture, color: string, keep = 1): THREE.Texture {
   return t;
 }
 
+/**
+ * For a model painted in one picture, like the MakerLab Swordsman: the bright
+ * cyan neon trims on the clothes are repainted in the hero's glow colour, and
+ * (if the hair has no material of its own) the teal hair on the head in the hair colour.
+ * The head is found from the skin weights (the parts that move with the head bone).
+ */
+function paintOnePicture(vrm: VRM, look: Look, hairToo: boolean) {
+  const head = vrm.humanoid.getRawBoneNode("head");
+  const meshes: [THREE.SkinnedMesh, MToonMaterial][] = [];
+  vrm.scene.traverse((o) => {
+    const m = o as THREE.SkinnedMesh;
+    if (!m.isSkinnedMesh || !m.geometry.attributes.uv) return;
+    // a VRM mesh has its material and its outline material
+    for (const mat of Array.isArray(m.material) ? m.material : [m.material])
+      if (mat instanceof MToonMaterial && mat.map && !/HAIR|SKIN|FACE|EYE/i.test(mat.name)) meshes.push([m, mat]);
+  });
+  const done = new Map<THREE.Texture, THREE.Texture>();
+  for (const [mesh, mat] of meshes) {
+    const src = mat.map!;
+    let out = done.get(src);
+    if (!out) {
+      const img = src.image as CanvasImageSource & { width: number; height: number };
+      const w = img.width;
+      const h = img.height;
+      // the head's part of the picture
+      const mask = document.createElement("canvas");
+      mask.width = w;
+      mask.height = h;
+      const mg = mask.getContext("2d", { willReadFrequently: true })!;
+      mg.fillStyle = mg.strokeStyle = "#fff";
+      // a little wider than the triangles, so the seams between the picture's pieces change too
+      mg.lineWidth = Math.max(2, w / 400);
+      mg.lineJoin = "round";
+      const bone = head ? mesh.skeleton.bones.indexOf(head as THREE.Bone) : -1;
+      const geo = mesh.geometry;
+      const uv = geo.attributes.uv;
+      const si = geo.attributes.skinIndex;
+      const sw = geo.attributes.skinWeight;
+      const onHead = (v: number) => {
+        let k = 0;
+        for (let c = 0; c < 4; c++) if (si.getComponent(v, c) === bone) k += sw.getComponent(v, c);
+        return k > 0.5;
+      };
+      const idx = geo.index;
+      const tris = idx ? idx.count : uv.count;
+      const at = (i: number) => (idx ? idx.getX(i) : i);
+      const y = (v: number) => (src.flipY ? 1 - uv.getY(v) : uv.getY(v)) * h;
+      if (bone >= 0 && hairToo)
+        for (let i = 0; i + 2 < tris; i += 3) {
+          const a = at(i), b = at(i + 1), c = at(i + 2);
+          if (!onHead(a) || !onHead(b) || !onHead(c)) continue;
+          mg.beginPath();
+          mg.moveTo(uv.getX(a) * w, y(a));
+          mg.lineTo(uv.getX(b) * w, y(b));
+          mg.lineTo(uv.getX(c) * w, y(c));
+          mg.closePath();
+          mg.fill();
+          mg.stroke();
+        }
+      const m = mg.getImageData(0, 0, w, h).data;
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const g = canvas.getContext("2d", { willReadFrequently: true })!;
+      g.drawImage(img, 0, 0);
+      const data = g.getImageData(0, 0, w, h);
+      const px = data.data;
+      const hair = new THREE.Color(look.hair).convertLinearToSRGB().getHSL({ h: 0, s: 0, l: 0 });
+      const glow = new THREE.Color(look.glow ?? "#5fd6f0").convertLinearToSRGB().getHSL({ h: 0, s: 0, l: 0 });
+      const c = new THREE.Color();
+      const o = { h: 0, s: 0, l: 0 };
+      for (let i = 0; i < px.length; i += 4) {
+        c.setRGB(px[i] / 255, px[i + 1] / 255, px[i + 2] / 255);
+        c.getHSL(o);
+        if (o.h < 0.45 || o.h > 0.58 || o.s < 0.3) continue; // not teal or cyan
+        if (m[i] > 127) {
+          // the hair's teal (the blue eyes are a little bluer and stay as they are)
+          if (o.h < 0.49 || o.h > 0.556 || o.l < 0.1 || o.l > 0.88) continue;
+          c.setHSL(hair.h, Math.min(1, hair.s * (0.5 + o.s * 0.5)), Math.min(0.95, Math.max(0.04, hair.l + (o.l - 0.5) * 0.7)));
+        } else {
+          if (!look.glow || o.l < 0.45) continue; // only the bright trims glow
+          c.setHSL(glow.h, Math.max(glow.s, 0.6) * o.s, Math.min(0.95, glow.l + (o.l - 0.5) * 0.6));
+        }
+        px[i] = c.r * 255;
+        px[i + 1] = c.g * 255;
+        px[i + 2] = c.b * 255;
+      }
+      g.putImageData(data, 0, 0);
+      out = new THREE.CanvasTexture(canvas);
+      out.flipY = src.flipY;
+      out.colorSpace = THREE.SRGBColorSpace;
+      out.wrapS = src.wrapS;
+      out.wrapT = src.wrapT;
+      out.magFilter = src.magFilter;
+      out.minFilter = src.minFilter;
+      done.set(src, out);
+    }
+    mat.map = out;
+    if (mat.shadeMultiplyTexture === src) mat.shadeMultiplyTexture = out;
+  }
+}
+
 function dress(vrm: VRM, look: Look) {
+  let hasHair = false;
+  vrm.scene.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh) for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) if (/HAIR/i.test(m.name)) hasHair = true;
+  });
+  paintOnePicture(vrm, look, !hasHair);
   const glow = new THREE.Color(look.glow ?? "#ffffff");
   const skin = new THREE.Color(look.skin).lerp(new THREE.Color("#fff1e8"), 0.2);
-  const done = new Map<THREE.Texture, THREE.Texture>();
+  const done = new Map<string, THREE.Texture>();
+  const ids = new Map<THREE.Texture, number>();
   const paint = (t: THREE.Texture | null, color: string, keep: number) => {
     if (!t) return t;
-    const key = done.get(t);
+    if (!ids.has(t)) ids.set(t, ids.size);
+    const k = `${ids.get(t)}:${color}:${keep}`;
+    const key = done.get(k);
     if (key) return key;
     const r = recolor(t, color, keep);
-    done.set(t, r);
+    done.set(k, r);
     return r;
   };
+  // the class's clothes (from its 2D art); shoes stay dark leather
+  const cloth = (name: string) =>
+    !look.outfit ? null : /Tops/i.test(name) ? look.outfit.top : /Bottoms/i.test(name) ? look.outfit.bottom : /Shoes/i.test(name) ? "#3a2a22" : null;
   vrm.scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -128,7 +256,13 @@ function dress(vrm: VRM, look: Look) {
       m.parametricRimFresnelPowerFactor = /CLOTH/.test(name) ? 3.5 : 4.5;
       m.parametricRimLiftFactor = 0.05;
       m.rimLightingMixFactor = 1;
-      if (/CLOTH/.test(name)) {
+      const outfit = cloth(name);
+      if (outfit) {
+        m.map = paint(m.map, outfit, 0.9);
+        if (m.shadeMultiplyTexture) m.shadeMultiplyTexture = paint(m.shadeMultiplyTexture, outfit, 0.9);
+        m.color.set("#ffffff");
+        m.shadeColorFactor.set(new THREE.Color(outfit).multiplyScalar(0.55));
+      } else if (/CLOTH/.test(name)) {
         m.color.multiply(new THREE.Color("#4a5296"));
         m.shadeColorFactor.multiply(new THREE.Color("#3a3f78"));
       }
@@ -229,7 +363,8 @@ function retarget(vrm: VRM): Record<string, THREE.AnimationClip> | null {
   if (!moves) return null;
   const hipsNode = vrm.humanoid.getNormalizedBoneNode("hips");
   if (!hipsNode) return null;
-  const cacheKey = hipsNode.name;
+  // one set of moves per model file (the bodies differ in size)
+  const cacheKey = `${vrm.scene.userData.vrmFile ?? ""}:${hipsNode.name}`;
   const hit = clipCache.get(cacheKey);
   if (hit) return hit;
 
@@ -390,7 +525,7 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
   const handRestR = restQ(rawHandR);
   const handRestL = restQ(rawHandL);
 
-  if (chibi) {
+  if (chibi && !BUILT_CHIBI.has(vrm.scene.userData.vrmFile)) {
     const foot = vrm.humanoid.getRawBoneNode("leftFoot");
     const before = foot ? foot.getWorldPosition(new THREE.Vector3()).y : 0;
     for (const [bone, s] of Object.entries(CHIBI_SCALE)) vrm.humanoid.getRawBoneNode(bone as VRMHumanBoneName)?.scale.setScalar(s!);
@@ -432,6 +567,13 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
     const inv = g.userData.inv as THREE.Quaternion | undefined;
     if (inv) g.quaternion.copy(inv).multiply(forward);
   };
+  // bracelets are worn round the wrist: the ring's axis runs along the arm
+  // (in the rest pose the arms point sideways, along x)
+  const alongArm = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -Math.PI / 2));
+  const wear = (g: THREE.Group) => {
+    const inv = g.userData.inv as THREE.Quaternion | undefined;
+    if (inv) g.quaternion.copy(inv).multiply(alongArm);
+  };
 
   const mixer = new THREE.AnimationMixer(vrm.scene);
   const actions = new Map<string, THREE.AnimationAction>();
@@ -470,6 +612,9 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
   let swings = 0;
   let nextBlink = 0;
   const face = vrm.expressionManager;
+  const here = new THREE.Vector3();
+  const last = new THREE.Vector3();
+  let placed = false;
 
   const model: HeroModel = {
     root,
@@ -480,11 +625,21 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
       model.horn = horn;
       holdR.clear();
       holdL.clear();
-      aim(holdR);
-      aim(holdL);
+      const band = weapon === "healing_bracelet" || weapon === "strength_bracelet";
+      for (const g of [holdR, holdL]) (band ? wear : aim)(g);
       const w = horn ? makeHornWeapon(weapon, look.glow) : makeWeapon(weapon);
-      if (w.right) holdR.add(w.right);
-      if (w.left) holdL.add(w.left);
+      for (const [hold, piece] of [
+        [holdR, w.right],
+        [holdL, w.left],
+      ] as const) {
+        if (!piece) continue;
+        if (band) {
+          // snug round the wrist joint (the ring is built a little forward of the fist)
+          piece.scale.setScalar(0.42);
+          piece.position.set(0, -0.06 * 0.42, 0);
+        }
+        hold.add(piece);
+      }
       if (look.glow && !horn)
         for (const hold of [holdR, holdL])
           hold.traverse((o) => {
@@ -534,6 +689,12 @@ function animeHero(vrm: VRM, look: Look, chibi: boolean): HeroModel | null {
         if (bt >= 150) nextBlink = t + 2200 + Math.random() * 2600;
       }
       vrm.update(dt);
+      // the swinging hair works in the world: when the hero first appears or jumps
+      // to a new place (a new map, a respawn), it starts again at rest instead of whipping
+      root.getWorldPosition(here);
+      if (!placed || here.distanceTo(last) > 4) vrm.springBoneManager?.reset();
+      placed = true;
+      last.copy(here);
     },
     dispose() {
       mixer.stopAllAction();
@@ -570,7 +731,7 @@ export function makeVroidHero(look: Look): HeroModel {
   const offPack = onPackReady(swapToRigged);
 
   void loadPack().then(async () => {
-    const vrm = await loadVrm();
+    const vrm = await loadHeroVrm();
     if (!vrm || gone) return;
     const anime = animeHero(vrm, look, chibi);
     if (!anime || gone) {
@@ -609,5 +770,5 @@ export function makeVroidHero(look: Look): HeroModel {
 
 /** Starts downloading the anime model early (for the create screen and the game). */
 export function preloadVroid() {
-  void modelBytes();
+  void fileBytes(HERO);
 }
